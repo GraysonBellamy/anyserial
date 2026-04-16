@@ -22,11 +22,16 @@ Contracts pinned here:
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+
+if sys.platform == "win32":
+    pytest.skip("POSIX-only (termios)", allow_module_level=True)
+
 import os
 import termios
 from typing import TYPE_CHECKING, Any
-
-import pytest
 
 from anyserial._bsd.backend import BsdBackend
 from anyserial._bsd.capabilities import bsd_capabilities

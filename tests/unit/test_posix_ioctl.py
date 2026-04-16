@@ -15,7 +15,12 @@ hex assertions are the regression guard.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
+
+if sys.platform == "win32":
+    pytest.skip("POSIX-only (fcntl)", allow_module_level=True)
 
 import anyserial._posix.ioctl as ioctl_mod
 from anyserial._posix.ioctl import (

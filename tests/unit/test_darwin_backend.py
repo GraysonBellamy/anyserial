@@ -16,11 +16,16 @@ monkeypatched so the suite runs on Linux CI. The key contracts to pin:
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+
+if sys.platform == "win32":
+    pytest.skip("POSIX-only (termios)", allow_module_level=True)
+
 import os
 import termios
 from typing import TYPE_CHECKING, Any
-
-import pytest
 
 from anyserial._darwin import backend as backend_mod
 from anyserial._darwin.backend import DarwinBackend

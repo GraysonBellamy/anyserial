@@ -11,10 +11,15 @@ a silent corruption, not a visible error.
 
 from __future__ import annotations
 
-import fcntl
-import struct
+import sys
 
 import pytest
+
+if sys.platform == "win32":
+    pytest.skip("POSIX-only (fcntl)", allow_module_level=True)
+
+import fcntl
+import struct
 
 from anyserial._darwin.baudrate import IOSSIOSPEED, set_iossiospeed
 
