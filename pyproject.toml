@@ -89,7 +89,8 @@ dev = [
     { include-group = "docs" },
     "pre-commit>=4.0",
     "pyserial-asyncio>=0.6",
-    "uvloop>=0.22.1",
+    "uvloop>=0.22.1; platform_system == 'Linux' or platform_system == 'Darwin'",
+    "winloop>=0.1.1; platform_system == 'Windows'",
 ]
 lint = [
     "ruff>=0.8",
