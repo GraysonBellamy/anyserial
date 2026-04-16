@@ -144,6 +144,12 @@ ERROR_DEVICE_REMOVED: int = 1617
 
 
 class DCB(Structure):
+    # ``_layout_`` is required alongside ``_pack_`` on CPython 3.14+
+    # (PEP 749 / gh-#119471): the implicit MSVC default emits a
+    # DeprecationWarning that becomes a hard error under our
+    # ``filterwarnings = error`` policy. On 3.13 the attribute is
+    # simply ignored — ctypes doesn't read it.
+    _layout_ = "ms"
     _pack_ = 1
     _fields_ = (
         ("DCBlength", c_uint32),
