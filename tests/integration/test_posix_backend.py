@@ -39,6 +39,18 @@ from anyserial._types import ByteSize, Parity, StopBits
 from anyserial.config import FlowControl, SerialConfig
 from anyserial.exceptions import UnsupportedConfigurationError
 
+# ``TIOCINQ`` (a.k.a. ``FIONREAD``) on a pty *master* is a Linux-ism: Linux
+# returns the count of bytes the master can read, but Darwin's pty driver
+# tracks the input/output queues separately and returns 0 on the master
+# regardless of what the slave wrote. The ioctl still works on real serial
+# fds and on pty *slaves* — it's specifically the master-side query that's
+# a no-op on Darwin. Tests that depend on master-side counts skip on
+# Darwin; the same code paths are covered on Linux CI.
+_skip_pty_master_inq = pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="TIOCINQ on pty master returns 0 on Darwin (kernel pty quirk, not a bug)",
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -317,6 +329,7 @@ class TestHotPath:
 
 
 class TestSnapshots:
+    @_skip_pty_master_inq
     def test_input_waiting_reflects_pending_bytes(self) -> None:
         with pty_pair() as (controller, follower):
             backend = _backend_from_fd(controller)
@@ -335,6 +348,7 @@ class TestSnapshots:
             # Ptys don't queue output; the call must still succeed.
             assert backend.output_waiting() == 0
 
+    @_skip_pty_master_inq
     def test_reset_input_buffer_discards_pending(self) -> None:
         with pty_pair() as (controller, follower):
             backend = _backend_from_fd(controller)

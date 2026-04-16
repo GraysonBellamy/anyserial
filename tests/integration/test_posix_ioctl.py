@@ -40,7 +40,21 @@ from anyserial._posix.ioctl import (
 )
 
 _IS_LINUX = sys.platform.startswith("linux")
-_HAS_BREAK_FALLBACK = _IS_LINUX or sys.platform == "darwin" or "bsd" in sys.platform
+_IS_DARWIN = sys.platform == "darwin"
+_HAS_BREAK_FALLBACK = _IS_LINUX or _IS_DARWIN or "bsd" in sys.platform
+
+# ``TIOCINQ`` (a.k.a. ``FIONREAD``) on a pty *master* is a Linux-ism: Linux
+# returns the count of bytes the master can read, but Darwin's pty driver
+# tracks the input/output queues separately and returns 0 on the master
+# regardless of what the slave wrote. The ioctl still works correctly on
+# real serial fds and on pty *slaves* — it's specifically the master-side
+# query that's a no-op on Darwin. Tests that depend on master-side counts
+# skip on Darwin; the same code paths are covered on Linux CI.
+_TIOCINQ_PTY_MASTER_BROKEN = _IS_DARWIN
+_skip_pty_master_inq = pytest.mark.skipif(
+    _TIOCINQ_PTY_MASTER_BROKEN,
+    reason="TIOCINQ on pty master returns 0 on Darwin (kernel pty quirk, not a bug)",
+)
 
 
 @contextmanager
@@ -60,6 +74,7 @@ class TestInputWaiting:
         with pty_pair() as (controller, _follower):
             assert input_waiting(controller) == 0
 
+    @_skip_pty_master_inq
     def test_reflects_pending_bytes(self) -> None:
         with pty_pair() as (controller, follower):
             # Avoid \n in the payload — the default pty line discipline
@@ -126,6 +141,7 @@ class TestSetBreak:
 
 
 class TestResetBuffers:
+    @_skip_pty_master_inq
     def test_reset_input_buffer_discards_pending_bytes(self) -> None:
         with pty_pair() as (controller, follower):
             os.write(follower, b"stale")
