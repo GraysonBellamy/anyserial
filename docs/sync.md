@@ -152,9 +152,33 @@ The only intentional differences:
 | Hardware-test bench, one-shot scripts  | Sync wrapper                           |
 | Integrating into an AnyIO task group   | Async `anyserial.SerialPort`           |
 | Library API that callers compose with  | Async (don't force an event loop)      |
+| Tight request/response loops where every µs counts | Async (skip the portal hop) |
+| Fan-out across many ports concurrently | Async (one loop, no thread-per-port)   |
 
 The sync wrapper is a convenience; code that expects to grow into an
 async application should start with the async API.
+
+## Performance expectations
+
+Every sync call pays one `portal.call(coroutine, *args)` hop — the
+caller's thread submits the coroutine to the event-loop thread and
+blocks until the result returns. The hop is measured on real
+hardware at **~470 µs per call** on a modern laptop
+([reference](performance.md#hardware-case-study-alicat-mfc)). Two
+consequences worth internalizing:
+
+- **Fine for setup, one-shot scripts, and I/O-bound calls.** The hop
+  is dwarfed by any wait on the serial port (milliseconds for USB
+  adapters).
+- **Visible on tight request/response loops.** A 500-iteration poll
+  loop using the sync wrapper takes roughly 250 ms longer than the
+  same loop in pure async code. For that workload, drop into an
+  `anyio.run(...)` block or structure the caller as async.
+
+Cancellation shows the same shape: async cancellation hits p99 < 1 ms
+on real USB; the sync wrapper's `timeout=` lands at p99 ≈ 2.6 ms
+because the cancellation event itself crosses the portal. Again, fine
+for most code — just know the number so you don't be surprised.
 
 [provider]: https://anyio.readthedocs.io/en/stable/api.html#anyio.from_thread.BlockingPortalProvider
 [configure_portal]: #choosing-the-anyio-backend

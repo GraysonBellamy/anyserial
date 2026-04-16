@@ -88,6 +88,8 @@ dev = [
     { include-group = "test" },
     { include-group = "docs" },
     "pre-commit>=4.0",
+    "pyserial-asyncio>=0.6",
+    "uvloop>=0.22.1",
 ]
 lint = [
     "ruff>=0.8",

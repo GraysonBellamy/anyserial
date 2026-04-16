@@ -385,7 +385,11 @@ class SerialPort(anyio.abc.ByteStream):
         raise NotImplementedError
 
     async def receive_into(self, buffer: bytearray | memoryview) -> int:
-        """Zero-copy read into ``buffer``; subclasses provide the I/O path."""
+        """Zero-allocation read into caller-owned ``buffer``.
+
+        Prefer this over :meth:`receive` in tight loops that want to
+        reuse a scratch buffer. Subclasses provide the I/O path.
+        """
         raise NotImplementedError
 
     async def receive_available(self, *, limit: int | None = None) -> bytes:
@@ -483,9 +487,9 @@ class _PosixSerialPort(SerialPort):
             raise ValueError(msg)
         with self._receive_guard:
             self._raise_if_closed()
-            # Allocate exactly what the caller asked for; read_chunk_size is
-            # a configuration hint for callers (and the future scratch-pool
-            # path), not a cap on user-requested reads.
+            # Allocate exactly what the caller asked for. Callers that
+            # want to avoid the per-call allocation should use
+            # ``receive_into`` with a pre-allocated buffer instead.
             buffer = bytearray(max_bytes)
             fd = self._backend.fileno()
             while True:
@@ -563,6 +567,12 @@ class _PosixSerialPort(SerialPort):
     @override
     async def receive_into(self, buffer: bytearray | memoryview) -> int:
         """Read into caller-owned ``buffer`` without an intermediate copy.
+
+        The zero-allocation hot path. :meth:`receive` allocates a fresh
+        ``bytearray(max_bytes)`` on every call to satisfy the
+        ``ByteStream`` contract's ``bytes`` return type; tight loops
+        that want to reuse a scratch buffer should call this method
+        instead and manage the buffer themselves.
 
         Returns the number of bytes written into ``buffer``. Raises
         :class:`SerialDisconnectedError` on EOF, preserving the same "never

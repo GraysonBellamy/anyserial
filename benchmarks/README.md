@@ -132,9 +132,16 @@ uv run pytest benchmarks/test_windows_throughput.py --benchmark-only ^
 
 The pty-based benchmarks above measure the userland → kernel pty path,
 which is enough to catch regressions in the readiness loop and the
-config-apply pipeline. Hardware-bound numbers (FTDI, CP210x, CH340 with
-real link rates) live as `tests/hardware/` opt-in tests today; they'll
-move into `benchmarks/hardware/` once a self-hosted runner is wired up.
+config-apply pipeline. Real-hardware benchmarks live in
+[`benchmarks/hardware/`](hardware/) — device-specific scripts that
+aren't part of CI but produced the numbers in
+[`docs/performance.md`](../docs/performance.md#hardware-case-study-alicat-mfc).
+The current case-study device is an Alicat MFC over a Prolific USB
+adapter; see the subdirectory's README for the rig and how to adapt
+the scripts to your own hardware.
+
+FTDI / CP210x / CH340 reference runs will land here automatically once
+a self-hosted runner with known adapters is wired up.
 
 ## Comparing two runs
 

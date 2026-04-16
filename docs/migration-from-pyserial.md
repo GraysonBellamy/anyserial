@@ -203,8 +203,37 @@ them through AnyIO, so:
 - First-class cancellation and typed attributes.
 - Native discovery instead of `pyserial.tools.list_ports`.
 
-The [performance numbers](performance.md) compare the two
-head-to-head on pty.
+Head-to-head numbers on pty and on a real Alicat MFC over USB are in
+[performance.md](performance.md) and the
+[hardware case study](performance.md#hardware-case-study-alicat-mfc).
+
+## Where each library wins (honestly)
+
+The performance picture is more nuanced than "anyserial is always
+faster" — here's the unvarnished version for you to match against
+your workload:
+
+| Workload                                     | Recommendation |
+|----------------------------------------------|----------------|
+| Single device, one-shot request/response     | **Either.** On real USB hardware the p50 gap between pyserial and pure-async anyserial is ≤100 µs. Use what fits your codebase. |
+| Line-framed single device                    | **anyserial with [`BufferedByteStream`](quickstart.md#line-framed-protocols-with-bufferedbytestream)** for cleaner code; no performance cost. |
+| Deadline-bounded reads / cancellable I/O     | **anyserial.** p99 cancellation latency < 1 ms on real USB; pyserial has no true cancellation, only blocking reads with `timeout=`. |
+| Mixing serial with network / file I/O        | **anyserial.** One event loop handles all of it. Doing this with pyserial means a thread. |
+| Many-device fan-out (N ≥ 4 ports concurrent) | **anyserial.** 6× faster than thread-per-port pyserial on the benchmark rig; scales flat per-port while threads grow with GIL contention. |
+| You already have a large sync pyserial codebase and it works | **Stay on pyserial** until you actually need async or cancellation. `anyserial` isn't a drop-in upgrade. |
+| You need pyserial-specific features (RFC 2217, specific obscure adapters) | **Stay on pyserial** — `anyserial`'s platform coverage is narrower. |
+
+The case study at
+[performance.md#hardware-case-study-alicat-mfc](performance.md#hardware-case-study-alicat-mfc)
+walks through the numbers on a live Alicat MFC over a Prolific USB
+adapter. TL;DR:
+
+- **Single-device p50**: pyserial 5.61 ms, anyserial async 5.52 ms —
+  within ~100 µs.
+- **Cancellation p99**: all anyserial async backends < 1 ms;
+  pyserial-asyncio comparable; pyserial's `timeout=` at 449 µs but
+  measures timeout-on-block, not true cancel.
+- **Fan-out N=16**: anyserial 84 ms; pyserial threaded 520 ms.
 
 ## Behavioural differences
 

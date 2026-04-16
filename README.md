@@ -85,7 +85,48 @@ with SerialPort.open("/dev/ttyUSB0", baudrate=115_200) as port:
     reply = port.receive(1024, timeout=1.0)
 ```
 
-The sync wrapper is backed by a process-wide `anyio.from_thread.BlockingPortalProvider`; every blocking call accepts an optional `timeout=`.
+The sync wrapper is backed by a process-wide `anyio.from_thread.BlockingPortalProvider`; every blocking call accepts an optional `timeout=`. Each call pays a one-time portal hop (~tens to hundreds of µs on a modern laptop) — fine for setup and occasional I/O, visible on tight request/response loops. Prefer async for those; see [docs/sync.md](docs/sync.md#when-to-use-which).
+
+### Line-framed protocols
+
+For protocols terminated by `\n`, `\r`, or any fixed delimiter, wrap the port in AnyIO's `BufferedByteStream`. It handles partial reads across the delimiter for you, delegates `send` to the underlying port, and has no measurable overhead versus a hand-rolled loop:
+
+```python
+from anyio.streams.buffered import BufferedByteStream
+
+async with await open_serial_port("/dev/ttyUSB0", config) as port:
+    buffered = BufferedByteStream(port)
+    await buffered.send(b"AT\r")
+    line = await buffered.receive_until(b"\r", max_bytes=512)
+```
+
+### Fan-out: reading from many devices at once
+
+One event loop handles N ports concurrently, no thread-per-port. This is where `anyserial` pulls ahead of sync libraries — see the [hardware case study](docs/performance.md#hardware-case-study-alicat-mfc) for numbers (6× faster than thread-per-port pyserial at N=16 on pty-backed peers).
+
+```python
+import anyio
+from anyserial import SerialConfig, open_serial_port
+
+
+async def poll_one(path: str, results: dict[str, bytes]) -> None:
+    async with await open_serial_port(path, SerialConfig(baudrate=115_200)) as port:
+        await port.send(b"A\r")
+        results[path] = await port.receive(256)
+
+
+async def main() -> None:
+    paths = ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2"]
+    results: dict[str, bytes] = {}
+    async with anyio.create_task_group() as tg:
+        for p in paths:
+            tg.start_soon(poll_one, p, results)
+    for path, frame in results.items():
+        print(path, frame)
+
+
+anyio.run(main)
+```
 
 ### Discovery
 

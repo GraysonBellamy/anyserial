@@ -103,6 +103,98 @@ sibling integration test), so the effective latency per-byte is
 for the whole burst** — a ~1.2× factor at this depth that grows with
 queue size.
 
+## Hardware case study: Alicat MFC
+
+The pty numbers above measure userland overhead. The numbers below
+measure the same library against a real USB-serial device end-to-end,
+and compare it head-to-head with `pyserial` and `pyserial-asyncio` on
+that hardware. Script at
+[`benchmarks/hardware/alicat_benchmark.py`](https://github.com/GraysonBellamy/anyserial/blob/main/benchmarks/hardware/alicat_benchmark.py);
+test rig and methodology in
+[`benchmarks/hardware/README.md`](https://github.com/GraysonBellamy/anyserial/blob/main/benchmarks/hardware/README.md).
+
+**Rig**: Alicat MCR-200SLPM-D (firmware 8v17.0-R23) on a Prolific
+PL2303 USB-serial adapter, 115200-8N1, Linux 6.19, Python 3.13.
+
+### Single-device poll → frame round-trip (500 iterations)
+
+| Library / path                       | p50      | p90      | p99       |
+|--------------------------------------|----------|----------|-----------|
+| pyserial (sync)                      | 5.61 ms  | 5.74 ms  | 12.74 ms  |
+| **anyserial async, no portal**       | **5.52 ms** | **5.74 ms** | 12.93 ms |
+| anyserial + `BufferedByteReceiveStream` | 5.52 ms  | 5.70 ms  | 12.74 ms  |
+| anyserial async (portal-wrapped)     | 5.99 ms  | 6.40 ms  | 11.05 ms  |
+| anyserial sync wrapper               | 5.90 ms  | 6.37 ms  | 12.96 ms  |
+| pyserial-asyncio                     | 5.96 ms  | 6.30 ms  | 12.20 ms  |
+
+Two things to read here:
+
+- **Pure anyserial async ties pyserial at p50 within ~100 µs on real
+  USB.** Earlier drafts reported anyserial being ~500 µs slower on this
+  workload; that gap was the `portal.call` thread hop in the benchmark
+  harness, not the library. Time the work *inside* the coroutine and
+  the gap disappears.
+- **`BufferedByteReceiveStream` is free.** Hand-rolled `receive(128)`
+  with CR detection and the buffered wrapper are indistinguishable on
+  this workload. Use the buffered wrapper — it's idiomatic and reads
+  like protocol code instead of I/O plumbing.
+
+The ~5.5 ms p50 floor and ~12–17 ms p99 ceiling on all rows is the
+Prolific adapter's USB IRP turnaround plus device firmware processing;
+no amount of library work moves it.
+
+### Cancellation overshoot (10 ms deadline, 200 iterations)
+
+Meets the DESIGN §26.1 **< 1 ms p99** cancellation target on real
+hardware:
+
+| Library / path                       | p50     | p99     |
+|--------------------------------------|---------|---------|
+| anyserial asyncio                    | 247 µs  | **742 µs**  |
+| anyserial asyncio + uvloop           | 405 µs  | 777 µs  |
+| anyserial trio                       | 410 µs  | 767 µs  |
+| pyserial-asyncio                     | 266 µs  | 590 µs  |
+| pyserial (sync `timeout=`, not cancel) | 162 µs | 449 µs  |
+| anyserial sync wrapper               | 994 µs  | 2.60 ms |
+
+The sync wrapper is ~3–4× slower because every cancellation pays one
+portal hop. The pyserial `timeout=` column is included for reference
+but measures a blocking read with a deadline, not true task
+cancellation — the two aren't directly comparable.
+
+### Fan-out scaling (50 polls × N pty peers, seconds)
+
+Where the library's architecture pays off:
+
+| N devices | anyserial async | pyserial threaded | speedup |
+|-----------|-----------------|-------------------|---------|
+| 1         | 0.010 s         | 0.025 s           | 2.5×    |
+| 4         | 0.020 s         | 0.127 s           | **6.4×** |
+| 16        | 0.084 s         | 0.520 s           | **6.2×** |
+
+One event loop handles 16 concurrent ports in 84 ms; the thread-per-
+port approach in pyserial takes 520 ms for the same work. Per-port
+cost: anyserial stays flat at ~5 ms/port from N=4 onward; pyserial
+climbs to ~32 ms/port — GIL contention and thread dispatch scaling
+directly with device count.
+
+pty peers have no baud-rate throttling, so absolute numbers are
+library-overhead-only. The scaling law is what matters here: on real
+USB with 16 devices the per-port floor would be higher (hardware), but
+anyserial would remain roughly flat while pyserial would grow.
+
+### Takeaways
+
+1. **Single-device request/response: parity with pyserial.** Pick
+   whichever fits your codebase.
+2. **Many-device fan-out or structured cancellation: pick anyserial.**
+   That's what the library exists for.
+3. **Know the portal cost.** ~470 µs per `portal.call` hop on this
+   machine — visible on tight request/response loops, irrelevant for
+   I/O-bound multi-device workloads. See [Sync wrapper](sync.md#performance-expectations).
+4. **Use `BufferedByteReceiveStream` for line-framed protocols.** No
+   cost, better code.
+
 ## Windows (Serial Pair)
 
 Windows numbers are published nightly from the
