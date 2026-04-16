@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import os
+import sys
 
 import pytest
 
@@ -129,6 +130,26 @@ class TestLoopback:
             buf = bytearray(8)
             n = b.read_nonblocking(buf)
             assert bytes(buf[:n]) == b"abc"
+        finally:
+            a.close()
+            b.close()
+
+    def test_loopback_does_not_depend_on_posix_fd_helpers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail_posix_helper(*_args: object, **_kwargs: object) -> int:
+            raise AssertionError("MockBackend must use socket-native I/O")
+
+        monkeypatch.setattr(os, "readv", fail_posix_helper, raising=False)
+        monkeypatch.setattr(os, "write", fail_posix_helper)
+
+        a, b = MockBackend.pair()
+        try:
+            written = a.write_nonblocking(memoryview(b"portable"))
+            assert written == len(b"portable")
+            buf = bytearray(16)
+            count = b.read_nonblocking(buf)
+            assert bytes(buf[:count]) == b"portable"
         finally:
             a.close()
             b.close()
@@ -319,6 +340,7 @@ class TestControlPlane:
 
 
 class TestFileDescriptor:
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows socket handles are not CRT fds")
     def test_fileno_usable_with_os_read(self) -> None:
         a, b = MockBackend.pair()
         try:

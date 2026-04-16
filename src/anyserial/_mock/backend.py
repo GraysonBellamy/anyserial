@@ -2,7 +2,7 @@
 
 :class:`MockBackend` satisfies :class:`SyncSerialBackend` using a real
 ``socket.socketpair`` so :func:`anyio.wait_readable` actually fires on the
-mock's file descriptor — the async read/write loops in :class:`SerialPort`
+mock's socket handle — the async read/write loops in :class:`SerialPort`
 behave identically against a mock and against a real tty.
 
 The mock is intentionally minimal:
@@ -22,7 +22,6 @@ The mock is intentionally minimal:
 from __future__ import annotations
 
 import errno
-import os
 import socket
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Self
@@ -245,7 +244,7 @@ class MockBackend:
         if faults.eagain_reads > 0:
             faults.eagain_reads -= 1
             raise BlockingIOError(errno.EAGAIN, "mock: injected EAGAIN")
-        return os.readv(self._state.sock.fileno(), [buffer])
+        return self._state.sock.recv_into(buffer)
 
     def write_nonblocking(self, data: memoryview) -> int:
         """See :meth:`SyncSerialBackend.write_nonblocking`."""
@@ -265,7 +264,7 @@ class MockBackend:
             # Can't distinguish an empty send from EOF; refuse the call so
             # tests that ask for a zero-length write don't wedge.
             return 0
-        return os.write(self._state.sock.fileno(), view)
+        return self._state.sock.send(view)
 
     # ------------------------------------------------------------------
     # Control plane
