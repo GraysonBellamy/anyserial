@@ -28,15 +28,16 @@ from anyserial._bsd.discovery import enumerate_ports, resolve_port_info
 if TYPE_CHECKING:
     from pathlib import Path
 
-# macOS's default APFS volume is case-insensitive, so files like ``cuaU0``
-# and ``cuau0`` collide as the same on-disk entry. Tests that rely on
-# distinguishing case-only-different basenames (FreeBSD's USB vs
-# on-board callout naming) skip on Darwin; the same pattern dispatch is
-# covered by Linux CI where ext4 is case-sensitive. Real FreeBSD's UFS /
-# ZFS are case-sensitive, so this is purely a host-FS quirk.
+# macOS's default APFS and Windows NTFS are both case-insensitive, so
+# files like ``cuaU0`` and ``cuau0`` collide as the same on-disk entry.
+# Tests that rely on distinguishing case-only-different basenames
+# (FreeBSD's USB vs on-board callout naming) skip on those hosts; the
+# same pattern dispatch is covered by Linux CI where ext4 is
+# case-sensitive. Real FreeBSD's UFS / ZFS are case-sensitive, so this
+# is purely a host-FS quirk.
 _skip_case_insensitive_fs = pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="case-only-different filenames collide on macOS APFS (host quirk)",
+    sys.platform in {"darwin", "win32"},
+    reason="case-only-different filenames collide on macOS APFS / Windows NTFS",
 )
 
 

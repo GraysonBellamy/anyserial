@@ -12,9 +12,22 @@ the actual sysfs format is the same shape on every Linux kernel.
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
+
+# These tests build synthetic /sys trees with paths like
+# ``pci0000:00/0000:00:14.0/usb1/1-1`` — the colons are illegal as
+# filename characters on NTFS (Windows reserves ``:`` as the drive
+# separator). The test_default_roots_* assertion also compares string
+# paths and breaks on Windows backslash normalization. The same dispatch
+# logic is covered on Linux CI; sysfs only exists there in production.
+if sys.platform == "win32":
+    pytest.skip(
+        "Linux sysfs walker tests require POSIX path semantics (colons in filenames)",
+        allow_module_level=True,
+    )
 
 from anyserial._linux.discovery import (
     _DEFAULT_DEV_ROOT,

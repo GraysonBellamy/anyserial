@@ -475,6 +475,14 @@ class TestWindowsSkeleton:
 
         assert not isinstance(WindowsBackend(), SyncSerialBackend)
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="On a real Windows host WindowsBackend opens the HANDLE and "
+        "fails with PortNotFoundError on the bogus COM1, not the "
+        "UnsupportedPlatformError this test asserts. The test exercises the "
+        "non-Windows-host failure modes of the dispatch path; Windows-host "
+        "behaviour is covered by tests/integration/test_windows_backend.py.",
+    )
     async def test_open_serial_port_on_win32_raises_unsupported(
         self,
         monkeypatch: pytest.MonkeyPatch,
