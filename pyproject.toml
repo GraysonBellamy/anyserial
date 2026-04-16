@@ -95,6 +95,12 @@ lint = [
 type = [
     "mypy>=1.13",
     "pyright>=1.1.390",
+    # Optional discovery extras pulled in so mypy raises a consistent
+    # `import-untyped` (rather than `import-not-found`) for both the
+    # local and CI typecheck environments. Lets the targeted ignore in
+    # _discovery/{pyudev,pyserial}.py stay precise.
+    "pyudev>=0.24; platform_system == 'Linux'",
+    "pyserial>=3.5",
 ]
 test = [
     "pytest>=8.3",

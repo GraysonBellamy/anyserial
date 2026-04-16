@@ -32,21 +32,29 @@ repos:
     hooks:
       - id: uv-lock
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.20.1
+  # Local hook — runs mypy via `uv run` against the same dep groups CI
+  # uses, so the local typecheck env is identical to the CI typecheck
+  # env. Avoids the additional_dependencies drift that plagued the old
+  # mirrors-mypy setup (where the hook venv could see a different set
+  # of optional extras than CI's `uv sync --group type --group test`).
+  #
+  # `--frozen` makes the hook fail loudly if uv.lock no longer satisfies
+  # the requested groups (rather than silently re-resolving), so a stale
+  # lockfile surfaces as a typecheck failure rather than a hidden drift.
+  #
+  # Runs on pre-push, not every commit — mypy is the slowest hook here
+  # and CI re-runs it anyway; pre-push is the right granularity for a
+  # last-line-of-defense check that needs the full project venv.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies:
-          - anyio>=4.13
-          - pytest>=8.3
-          - hypothesis>=6.120
-          - pyserial>=3.5
-          - pyudev>=0.24
-          - trio>=0.27
-        args: ["--config-file=pyproject.toml"]
+        name: mypy (matches CI typecheck env)
+        entry: uv run --frozen --group type --group test mypy
+        language: system
         pass_filenames: false
         files: ^(src|tests)/
+        stages: [pre-push]
 
 ci:
   autoupdate_schedule: monthly
-  skip: [mypy]  # mypy needs full dep install; run it in CI separately
+  skip: [mypy]  # uv-driven local hook; CI runs typecheck job separately

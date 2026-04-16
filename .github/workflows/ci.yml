@@ -190,7 +190,7 @@ jobs:
           # in pkg on FreeBSD 15. uv pulls its own managed toolchain.
           run: |
             set -e
-            pkg install -y python313 curl
+            sudo pkg install -y python313 curl
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="$HOME/.cargo/bin:$PATH"
             uv sync --python 3.13 --all-extras --group test
