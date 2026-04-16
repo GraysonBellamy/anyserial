@@ -198,13 +198,23 @@ class TestSelector:
         # ``open_serial_port`` orchestrator) drive ``open(path, config)``.
         assert not backend.is_open
 
-    @pytest.mark.skipif(_IS_LINUX, reason="Linux has a real backend; covered above")
-    def test_raises_unsupported_platform_on_unwired_platforms(self) -> None:
+    def test_raises_unsupported_platform_on_unwired_platforms(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Force the unsupported-platform branch regardless of the host OS by
+        # monkeypatching sys.platform to a value the selector doesn't handle.
+        # Every real platform we ship now has a backend, so the only way to
+        # reach this branch in test is to lie about the platform.
+        monkeypatch.setattr(sys, "platform", "haiku")
         with pytest.raises(UnsupportedPlatformError):
             select_backend("/dev/ttyX", SerialConfig())
 
-    @pytest.mark.skipif(_IS_LINUX, reason="Linux has a real backend; message-format check N/A")
-    def test_error_message_includes_path_on_unwired_platforms(self) -> None:
+    def test_error_message_includes_path_on_unwired_platforms(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "haiku")
         try:
             select_backend("/dev/ttyWEIRD", SerialConfig())
         except UnsupportedPlatformError as exc:

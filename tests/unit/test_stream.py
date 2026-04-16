@@ -526,19 +526,24 @@ class TestFinalization:
             await b.aclose()
 
 
-import sys as _sys  # noqa: E402 — platform probe for module-level skipif
-
-_IS_LINUX: bool = _sys.platform.startswith("linux")
+import sys as _sys  # noqa: E402 — re-imported here for inline monkeypatch usage
 
 
 class TestEntryPoint:
-    # On Linux the selector returns a real backend; the error becomes a
-    # PortNotFoundError from the nonexistent path and is covered by the
-    # pty-backed integration tests. On platforms without a shipped
-    # backend the selector raises UnsupportedPlatformError.
+    # Every shipped platform now has a real backend; the
+    # UnsupportedPlatformError path is exercised by monkeypatching
+    # sys.platform to a value the selector doesn't handle. Real-fd
+    # behaviour against shipped platforms is covered by the pty-backed
+    # integration tests under tests/integration/.
 
-    @pytest.mark.skipif(_IS_LINUX, reason="Linux backend is wired up; see integration tests")
-    async def test_open_serial_port_raises_on_unsupported_platform(self) -> None:
+    async def test_open_serial_port_raises_on_unsupported_platform(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Every shipped platform now has a backend, so to actually reach
+        # the UnsupportedPlatformError branch we have to lie about
+        # sys.platform. The selector reads it at call time.
+        monkeypatch.setattr(_sys, "platform", "haiku")
         with pytest.raises(UnsupportedPlatformError):
             await open_serial_port("/dev/ttyX")
 
@@ -546,8 +551,11 @@ class TestEntryPoint:
         conn = SerialConnectable(path="/dev/ttyX")
         assert isinstance(conn, anyio.abc.ByteStreamConnectable)
 
-    @pytest.mark.skipif(_IS_LINUX, reason="Linux backend is wired up; see integration tests")
-    async def test_serial_connectable_opens_via_connect(self) -> None:
+    async def test_serial_connectable_opens_via_connect(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(_sys, "platform", "haiku")
         conn = SerialConnectable(path="/dev/ttyX")
         with pytest.raises(UnsupportedPlatformError):
             await conn.connect()

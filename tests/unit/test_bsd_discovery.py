@@ -18,12 +18,26 @@ What we pin here:
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
+
+import pytest
 
 from anyserial._bsd.discovery import enumerate_ports, resolve_port_info
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+# macOS's default APFS volume is case-insensitive, so files like ``cuaU0``
+# and ``cuau0`` collide as the same on-disk entry. Tests that rely on
+# distinguishing case-only-different basenames (FreeBSD's USB vs
+# on-board callout naming) skip on Darwin; the same pattern dispatch is
+# covered by Linux CI where ext4 is case-sensitive. Real FreeBSD's UFS /
+# ZFS are case-sensitive, so this is purely a host-FS quirk.
+_skip_case_insensitive_fs = pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="case-only-different filenames collide on macOS APFS (host quirk)",
+)
 
 
 def _make_node(dev_root: Path, name: str) -> None:
@@ -32,6 +46,7 @@ def _make_node(dev_root: Path, name: str) -> None:
 
 
 class TestEnumeratePortsFreeBSD:
+    @_skip_case_insensitive_fs
     def test_usb_and_onboard_nodes_enumerated(self, tmp_path: Path) -> None:
         _make_node(tmp_path, "cuaU0")  # USB-serial callout
         _make_node(tmp_path, "cuaU1")
@@ -48,6 +63,7 @@ class TestEnumeratePortsFreeBSD:
             ],
         )
 
+    @_skip_case_insensitive_fs
     def test_dialin_aliases_surface(self, tmp_path: Path) -> None:
         _make_node(tmp_path, "ttyU0")  # USB dial-in
         _make_node(tmp_path, "ttyu0")  # On-board dial-in
@@ -97,6 +113,7 @@ class TestEnumeratePortsNetBSD:
 
 
 class TestEnumeratePortsDragonFly:
+    @_skip_case_insensitive_fs
     def test_freebsd_style_patterns(self, tmp_path: Path) -> None:
         # DragonFly inherits FreeBSD's naming — cuaU*, cuau*.
         _make_node(tmp_path, "cuaU0")
