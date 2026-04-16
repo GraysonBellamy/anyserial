@@ -167,20 +167,48 @@ jobs:
         run: |
           $setupc = "C:\Program Files (x86)\com0com\setupc.exe"
           if (-not (Test-Path $setupc)) {
-            Write-Error "setupc.exe not found at $setupc — com0com install incomplete"
-            exit 1
+            Write-Warning "setupc.exe not found at $setupc — Windows benchmarks will be skipped"
+            exit 0
+          }
+          if (Get-Variable -Name PSNativeCommandUseErrorActionPreference `
+              -ErrorAction SilentlyContinue) {
+            $PSNativeCommandUseErrorActionPreference = $false
           }
           $setupDir = Split-Path -Parent $setupc
           Push-Location $setupDir
           try {
+            function Invoke-Setupc {
+              param([Parameter(Mandatory = $true)][string[]] $Arguments)
+
+              $output = @(& $setupc @Arguments 2>&1)
+              $exitCode = $LASTEXITCODE
+              foreach ($line in $output) {
+                Write-Host $line
+              }
+              $failed = $exitCode -ne 0 -or [bool]($output -match "ERROR:")
+              if ($failed) {
+                Write-Warning "setupc $($Arguments -join ' ') failed; Windows benchmarks will be skipped"
+              }
+              [pscustomobject]@{
+                Ok = -not $failed
+                Output = $output
+              }
+            }
+
             # setupc.exe expects com0com.inf in the current working directory,
             # so run it from its install dir rather than the repo checkout.
-            $existing = & $setupc list 2>&1
-            if ($existing -match "CNCA0") {
-              & $setupc change CNCA0 PortName=COM50
-              & $setupc change CNCB0 PortName=COM51
+            $list = Invoke-Setupc -Arguments @("list")
+            if ($list.Output -match "CNCA0") {
+              $changeA = Invoke-Setupc -Arguments @("change", "CNCA0", "PortName=COM50")
+              $changeB = Invoke-Setupc -Arguments @("change", "CNCB0", "PortName=COM51")
+              if (-not ($changeA.Ok -and $changeB.Ok)) {
+                Write-Warning "com0com reported a driver-update failure"
+              }
             } else {
-              & $setupc install PortName=COM50 PortName=COM51
+              $install = Invoke-Setupc -Arguments @("install", "PortName=COM50", "PortName=COM51")
+              if (-not $install.Ok) {
+                Write-Warning "com0com reported a driver-install failure"
+              }
             }
             $serial = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' `
               -ErrorAction SilentlyContinue
@@ -189,8 +217,8 @@ jobs:
               "pair=COM50,COM51" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
               Write-Host "com0com pair ready: COM50,COM51"
             } else {
-              Write-Warning "COM50/COM51 not visible in SERIALCOMM after setupc"
-              exit 1
+              Write-Warning "COM50/COM51 not visible in SERIALCOMM after setupc; benchmarks will be skipped"
+              exit 0
             }
           } finally {
             Pop-Location
