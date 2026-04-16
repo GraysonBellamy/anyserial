@@ -142,7 +142,7 @@ driver. The backend is tested against:
 
 | Driver                | Notes |
 |-----------------------|-------|
-| com0com (virtual)     | CI default. Always-supported baud / flow / modem-line surface; ~1 ms minimum loopback latency (driver IRP turnaround). |
+| com0com / virtual COM | Supported on self-hosted CI when preinstalled. Always-supported baud / flow / modem-line surface; virtual-driver loopback commonly has ~1 ms minimum latency. |
 | FTDI (FT232R)         | Default `latency_timer=16` ms — bytes arrive in 16 ms chunks unless you lower it via the FTDI driver GUI (no programmatic API). Adjust via **Device Manager → Ports → Advanced → Latency Timer**. |
 | Prolific (PL2303)     | Standard baud rates reliable; off-brand clones may reject non-standard rates with `ERROR_INVALID_PARAMETER`. Capability still reads `SUPPORTED`; the call surfaces `UnsupportedConfigurationError` at apply time. |
 | Silicon Labs (CP210x) | Generally well-behaved; full-speed USB on older firmware can limit throughput above 921600 baud. |
@@ -313,20 +313,58 @@ it up without re-parsing messages.
   that runs on Linux CI as well as Windows. See
   [`tests/unit/test_windows_*.py`](https://github.com/GraysonBellamy/anyserial/tree/main/tests/unit).
 - **Integration tests**: the
-  [`windows-serial`](https://github.com/GraysonBellamy/anyserial/blob/main/.github/workflows/ci.yml)
-  job installs com0com on `windows-latest` and runs
-  `tests/integration/test_windows_backend.py` across Python 3.13 / 3.14
-  × asyncio (ProactorEventLoop) / Trio. A `windows-smoke` import-only
-  job runs alongside it as a fallback.
+  [`windows-serial-self-hosted`](https://github.com/GraysonBellamy/anyserial/blob/main/.github/workflows/ci.yml)
+  job runs `tests/integration/test_windows_backend.py` across Python
+  3.13 / 3.14 × asyncio (ProactorEventLoop) / Trio on an opt-in
+  self-hosted Windows runner. The runner must be labelled
+  `anyserial-windows-serial` and expose a pre-provisioned pair from
+  `ANYSERIAL_WINDOWS_PAIR` (defaults to `COM50,COM51`). GitHub-hosted
+  `windows-latest` runs the hermetic unit / property / typing suite but
+  does not install virtual COM kernel drivers.
 - **Benchmarks**: the
   [`bench-windows`](https://github.com/GraysonBellamy/anyserial/blob/main/.github/workflows/bench.yml)
-  job publishes nightly com0com numbers for the four scenarios in
+  job publishes opt-in self-hosted Windows serial numbers for the four scenarios in
   [design-windows-backend.md §11](https://github.com/GraysonBellamy/anyserial/blob/main/docs/design-windows-backend.md).
-  See [Performance](performance.md#windows-com0com) for the published
+  See [Performance](performance.md#windows-serial-pair) for the published
   numbers.
 - **Hardware tests**: opt-in via `ANYSERIAL_TEST_PORT`; not yet part
   of the automated matrix — Windows hardware coverage is welcome via
   PR.
+
+### Self-hosted serial CI setup
+
+Use a dedicated Windows runner for serial integration. Do not route
+public fork pull requests to it; the workflow gates this job to tag
+pushes (`refs/tags/v*`) and manual `workflow_dispatch` so the runner
+only needs to be online during release prep or debugging sessions, not
+24/7.
+
+1. Provision the machine with a stable serial loopback pair: com0com,
+   a commercial virtual-COM driver, or real hardware wired together.
+2. Confirm the ports are visible:
+
+   ```powershell
+   Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM'
+   ```
+
+3. Register the runner with labels `self-hosted`, `windows`, `x64`,
+   and `anyserial-windows-serial`.
+4. Set repository variable `ANYSERIAL_RUN_SELF_HOSTED_WINDOWS=true`.
+5. If the pair is not `COM50,COM51`, set
+   `ANYSERIAL_WINDOWS_PAIR=COMA,COMB`.
+
+**Kill switch**: set `ANYSERIAL_RUN_SELF_HOSTED_WINDOWS=false` (or
+unset it) to stop both the integration job and the `bench-windows`
+benchmark job from being created at all. Queued jobs on an offline
+self-hosted runner are free on GitHub's side, but any cloud VM you've
+provisioned as the runner host bills by the hour regardless of job
+state — shut the VM down when you're not releasing. The workflow also
+has `timeout-minutes` (30 CI / 45 bench) and `concurrency` +
+`cancel-in-progress: true` on both jobs so runs can't pile up.
+
+Future migration path to an ephemeral EC2 runner (no persistent host
+to maintain) is tracked in
+[design-windows-backend.md §10.6](design-windows-backend.md).
 
 ## Known limitations
 

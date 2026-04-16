@@ -129,8 +129,9 @@ Initial release.
   opt-in via `pytest -m hardware` with `ANYSERIAL_TEST_PORT`.
 - Benchmark suite under `benchmarks/`: receive / send latency,
   throughput, many-port fan-out, allocation profile, sync-vs-async,
-  Windows IOCP scenarios over com0com, and a `pyserial-asyncio`
-  head-to-head. Nightly bench workflow records baselines per backend.
+  Windows IOCP scenarios over an opt-in configured serial pair, and a
+  `pyserial-asyncio` head-to-head. Nightly bench workflow records
+  baselines per backend.
 
 ### Documentation
 

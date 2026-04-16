@@ -383,7 +383,7 @@ garbage in fields we don't overwrite. In practice this is safe because
 (b) drivers that put meaningful data in reserved fields are precisely
 the ones that break when those fields are zeroed.
 
-If M10.2 integration testing on com0com and real hardware (FTDI
+If M10.2 integration testing on virtual COM and real hardware (FTDI
 FT232R, Prolific PL2303, CH340G) shows no issues with the zeroed-DCB
 path, we can defer this change — but the `GetCommState` round-trip
 should be the default before final release.
@@ -532,18 +532,24 @@ translator.
 
 ### 10.2 Integration tests
 
-Virtual serial pair via **com0com** on GitHub Actions `windows-latest`:
+Virtual or hardware serial pair via an opt-in **self-hosted Windows
+runner**:
 
-- Install path to verify: `choco install com0com -y` (verify the
-  Chocolatey package is still maintained; if not, download signed
-  installer directly from the [paulakg4/com0com] fork and install
-  via `setupc.exe install PortName=COM50 PortName=COM51`).
-- Enumerate installed pair from registry; do **not** hardcode COM
-  numbers.
-- Mark tests `@pytest.mark.windows_virtual_serial` and skip cleanly if
-  no pair is present.
-- Expect ~1 ms minimum loopback latency (driver IRP turnaround) — code
-  timing assertions accordingly.
+- GitHub-hosted `windows-latest` runs hermetic Windows unit / property /
+  typing coverage only. It does not install com0com or other virtual COM
+  kernel drivers; modern Windows driver-signing policy makes that path
+  fragile and image-dependent.
+- Provision the runner once with com0com, a commercial virtual-COM
+  driver, or real serial hardware. Label it `anyserial-windows-serial`.
+- Set repository variable `ANYSERIAL_RUN_SELF_HOSTED_WINDOWS=true` to
+  enable the jobs. Set `ANYSERIAL_WINDOWS_PAIR=COMA,COMB` if the pair is
+  not the default `COM50,COM51`.
+- Validate the configured pair from
+  `HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM` before running integration tests.
+- Mark tests `@pytest.mark.windows_virtual_serial` and gate them on
+  `ANYSERIAL_WINDOWS_PAIR`.
+- Expect virtual-driver loopback latency, often around the millisecond
+  scale — code timing assertions accordingly.
 
 ### 10.3 Runtime matrix
 
@@ -554,20 +560,106 @@ test explicitly forces `SelectorEventLoop` and asserts we raise
 ### 10.4 Property / stress
 
 - `hypothesis` fuzz of DCB encode/decode parity.
-- 1 MB round-trip at 921600 baud across the com0com pair (flow-control
+- 1 MB round-trip at 921600 baud across the configured serial pair (flow-control
   matrix).
 - Cancellation-mid-read test: parked `receive`, cancel scope, verify
   clean teardown, no `ResourceWarning`.
 
 ### 10.5 CI wiring
 
-New job `windows-serial` in `ci.yml`:
+Windows jobs in `ci.yml`:
 
-- `runs-on: windows-latest`.
-- Matrix: `python-version: [3.11, 3.12, 3.13]`.
-- Steps: install com0com signed driver, run `pytest tests/unit -q`,
-  run `pytest tests/integration/test_windows_backend.py -q`.
-- Supersedes the existing `windows-smoke` job (kept as a fallback).
+- `windows-serial`: hosted `windows-latest`, Python 3.13 / 3.14,
+  hermetic unit / property / typing checks only. Runs on every push / PR.
+- `windows-serial-self-hosted`: opt-in self-hosted runner labelled
+  `anyserial-windows-serial`, Python 3.13 / 3.14, validates
+  `ANYSERIAL_WINDOWS_PAIR`, then runs
+  `pytest tests/integration/test_windows_backend.py -q -v`. Gated to
+  **release prep only**: triggers on `refs/tags/v*` pushes and manual
+  `workflow_dispatch`. Skipped on push-to-main and PRs so the runner
+  doesn't have to be online 24/7.
+- `windows-smoke`: import-only fallback remains useful when driver /
+  hardware integration is unavailable.
+
+`bench.yml`:
+
+- `bench-windows`: opt-in self-hosted runner, Python 3.13. Gated to
+  `workflow_dispatch` only — re-baseline Windows benchmarks explicitly
+  at release time; the nightly schedule stays on hosted Linux.
+
+### 10.6 Future: ephemeral cloud runner (planning note)
+
+The self-hosted runner works but carries real overhead: a persistent
+Windows machine to maintain, keep patched, and keep online for release
+runs. The trigger gates in §10.5 bound how often it has to be awake,
+but they don't remove the "own a Windows box" problem.
+
+**Target migration**: replace the persistent self-hosted runner with an
+**ephemeral EC2 Windows instance** spun up per job via
+[`machulav/ec2-github-runner`](https://github.com/machulav/ec2-github-runner)
+(or the Azure equivalent). A pre-baked AMI carries the signed com0com
+install, Python, uv, and the GHA runner agent configured to register +
+deregister on each job.
+
+**Cost model** (t3.medium Windows, us-east-1, on-demand):
+
+| Item | Cost |
+|---|---|
+| Compute per run (~15 min incl. boot/register/teardown) | ~$0.02 |
+| Egress per run (~100 MB) | ~$0.01 |
+| AMI snapshot storage (~30 GB) | ~$1.50/mo |
+
+Realistic totals at release cadence (~10 runs/mo): **~$1.80/mo** all-in.
+Compare to an always-on t3.medium Windows EC2 at ~$60/mo or the
+maintenance cost of a physical box on the desk.
+
+**Migration checklist** (when we pull the trigger):
+
+1. Launch a fresh Windows Server 2022 instance; install the
+   signed com0com package (same steps currently documented in
+   [`docs/windows.md`](windows.md) "Self-hosted serial CI setup").
+   Verify `COM50`/`COM51` surface in `SERIALCOMM`.
+2. Install Python 3.13 / 3.14 + uv + the GitHub Actions runner agent,
+   configured as a service that registers with
+   `--ephemeral --labels self-hosted,windows,x64,anyserial-windows-serial`
+   on boot and shuts down after one job.
+3. Bake the AMI (`aws ec2 create-image`). Snapshot the AMI ID in a
+   repository variable (`ANYSERIAL_WINDOWS_AMI`).
+4. Add an orchestration job ahead of `windows-serial-self-hosted`
+   (and `bench-windows`) that calls `machulav/ec2-github-runner` in
+   `mode: start` to launch the instance, runs the existing jobs against
+   it unchanged (labels match), then calls `mode: stop` to terminate.
+5. Store AWS credentials as a scoped IAM user
+   (`ec2:RunInstances` / `ec2:TerminateInstances` / `ec2:DescribeInstances`
+   only) in repository secrets.
+6. Drop the persistent-runner docs path from `docs/windows.md` — keep
+   it as an alternative for contributors who already have hardware on
+   hand, but default the instructions to the ephemeral path.
+
+**Why we haven't yet**: the self-hosted path is working, and the
+trigger gates keep it quiet enough that the cost of the migration
+(AMI bake, IAM setup, workflow plumbing) isn't paying back yet. Revisit
+if (a) the runner box becomes a maintenance drag, (b) we add a second
+maintainer who doesn't have Windows hardware on hand, or (c) the
+release cadence picks up to the point that "is the runner alive"
+becomes a recurring pre-release checklist item.
+
+**Cost reality / what actually bills**:
+
+- GitHub Actions does **not** charge for self-hosted runner time, so
+  a job queued for hours waiting on an offline runner is free on GHA's
+  side. GitHub auto-expires queued jobs after 24 hours.
+- What costs money is any cloud VM you left running as the runner
+  host — that bills by the hour regardless of whether a job is picked
+  up. Shut the VM down when you're not actively releasing.
+- The two safety nets in the workflow: (1) `timeout-minutes` (30 for
+  CI, 45 for bench) caps runtime once a runner picks the job up; (2)
+  a `concurrency` group with `cancel-in-progress: true` prevents
+  queued runs from piling up on top of a stuck one.
+- **Immediate kill switch**: set repository variable
+  `ANYSERIAL_RUN_SELF_HOSTED_WINDOWS` to `false` (or unset it). Both
+  `windows-serial-self-hosted` and `bench-windows` gate on it, so
+  nothing will be created until you flip it back.
 
 ## 11. Benchmark targets
 
@@ -577,7 +669,7 @@ New job `windows-serial` in `ci.yml`:
 |---|---|---|
 | Single-port round-trip, 1 B request/reply | p99 ≤ 3× Linux p99 on same hardware | USB-serial driver overhead floor. |
 | Throughput at 921600 baud, 4 KiB chunks | ≥ 90% of `pyserial-asyncio` on POSIX equivalent | Correctness more than speed. |
-| 32 concurrent ports (com0com pairs) | No thread growth; CPU scales linearly | IOCP validation. |
+| 32 concurrent ports (virtual COM pairs) | No thread growth; CPU scales linearly | IOCP validation. |
 | Open / close | < 50 ms per cycle | Catches leaks and driver-state regressions. |
 
 Numbers published in `docs/performance.md` alongside Linux numbers.
@@ -600,7 +692,7 @@ release. Retained as a record of the delivery order.
 |---|---|---|
 | **M10.0** ✅ | Design review approved. | Approval recorded. |
 | **M10.1** ✅ | Dispatch wiring in `stream.py` `_AsyncBackendSerialPort` + empty `_windows/backend.py` skeleton. Unit tests for dispatch path via a toy `AsyncSerialBackend` mock. | `open_serial_port` branched correctly on AnyIO backends on POSIX; Windows raised `UnsupportedPlatformError`. |
-| **M10.2** ✅ | `_win32.py`, `dcb.py` (with `GetCommState` round-trip), `capabilities.py`, `_runtime.py`, `backend.py` with `open/close/receive/send/drain`, both runtime paths (zero-copy `ReadFileInto` / `readinto_overlapped`), `_HandleWrapper` for asyncio proactor registration, "wait-for-any" `COMMTIMEOUTS` policy (§6.3). Integration suite on com0com. | Data path worked on both Trio and asyncio. |
+| **M10.2** ✅ | `_win32.py`, `dcb.py` (with `GetCommState` round-trip), `capabilities.py`, `_runtime.py`, `backend.py` with `open/close/receive/send/drain`, both runtime paths (zero-copy `ReadFileInto` / `readinto_overlapped`), `_HandleWrapper` for asyncio proactor registration, "wait-for-any" `COMMTIMEOUTS` policy (§6.3). Integration suite on virtual COM. | Data path worked on both Trio and asyncio. |
 | **M10.3** ✅ | `WaitCommEvent`, `GetCommModemStatus`, modem-line change notification; discovery via SetupAPI; error translation full matrix. | Full Windows capability surface. |
 | **M10.4** ✅ | Benchmarks published; docs (`docs/windows.md`, troubleshooting updates, capability matrix); release blocker review. | Shipped in `v0.1.0`. |
 
@@ -613,7 +705,7 @@ release. Retained as a record of the delivery order.
 | Trio's `register_with_iocp` / `wait_overlapped` marked unstable | Low | Medium | API is documented as a "sketch" but has been stable for years. Pin `trio >= 0.22`. |
 | USB-serial driver ignores `CancelIoEx` | Medium | Low | Trio + proactor both block on completion — buffer is still safely released. Document which drivers are known-good. |
 | `GetOverlappedResult(INFINITE)` eats Ctrl-C (pyserial #770) | N/A | N/A | We never call `GetOverlappedResult` with `bWait=TRUE`. Runtimes own completion waiting. |
-| com0com signed-driver install fragile on GHA | Medium | Medium | Chocolatey package + signed-installer fallback; tests skip gracefully when not present. |
+| Hosted-runner virtual COM driver install blocked by Windows signing policy | High | Medium | Do not install kernel drivers on GitHub-hosted runners; run COM integration / benchmarks on an opt-in self-hosted Windows runner with pre-provisioned ports. |
 | FTDI VCP 16 ms latency-timer default surprises users | High | Low | Documented in `docs/windows.md`; no programmatic fix (driver-GUI setting). |
 | `SP_DEVICE_INTERFACE_DETAIL_DATA_W.cbSize` x86 vs x64 bug | Low | High | Unit-test both sizeof paths; guard with `sizeof(c_void_p)`. |
 | Buffer GC under overlapped op | Low | Critical | We never free buffers in cancel handlers; both runtimes await real completion. |
@@ -635,5 +727,3 @@ release. Retained as a record of the delivery order.
 - [MS Learn — `COMMTIMEOUTS` structure](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-commtimeouts) (authoritative for the `MAXDWORD/MAXDWORD/positive` "wait-for-any" mode)
 - [MS Learn — Overlapped Operations](https://learn.microsoft.com/en-us/windows/win32/devio/overlapped-operations)
 - [MS Learn — `GUID_DEVINTERFACE_COMPORT`](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/guid-devinterface-comport)
-
-[paulakg4/com0com]: https://github.com/paulakg4/com0com

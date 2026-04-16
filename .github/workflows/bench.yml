@@ -123,14 +123,29 @@ jobs:
   bench-windows:
     # Per design-windows-backend.md §11: published Windows benchmark
     # numbers for the four scenarios (round-trip, throughput, fanout,
-    # open/close) over a com0com virtual COM-port pair.
+    # open/close) over a pre-provisioned virtual or hardware COM-port pair.
+    # GitHub-hosted runners cannot reliably install kernel serial drivers, so
+    # this job is opt-in on a self-hosted runner labelled for anyserial.
     #
-    # Best-effort like the Windows test job in ci.yml — if com0com install
-    # fails, the bench module skips cleanly (gates on ANYSERIAL_WINDOWS_PAIR)
-    # and the job still completes. The Linux pty bench above is the
-    # always-on baseline; Windows is supplementary coverage.
-    name: Windows com0com benchmarks (py${{ matrix.python }})
-    runs-on: windows-latest
+    # Trigger gate: manual ``workflow_dispatch`` only. The nightly schedule
+    # does not fan out to the self-hosted runner — re-baseline Windows
+    # numbers explicitly at release time. Ephemeral-cloud migration tracked
+    # in design-windows-backend.md §10.6.
+    name: Windows serial benchmarks — self-hosted (py${{ matrix.python }})
+    if: >-
+      ${{ vars.ANYSERIAL_RUN_SELF_HOSTED_WINDOWS == 'true'
+      && github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, windows, x64, anyserial-windows-serial]
+    # ``timeout-minutes`` bounds job runtime after a runner picks it up.
+    # Queue-wait is bounded by ``concurrency`` below plus GitHub's default
+    # 24-hour queued-job expiry. See ``ci.yml`` windows-serial-self-hosted
+    # for the full cost-model note.
+    timeout-minutes: 45
+    concurrency:
+      group: bench-windows-self-hosted-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ANYSERIAL_WINDOWS_PAIR: ${{ vars.ANYSERIAL_WINDOWS_PAIR || 'COM50,COM51' }}
     strategy:
       fail-fast: false
       matrix:
@@ -152,81 +167,28 @@ jobs:
           uv sync --python ${{ matrix.python }}
           --all-extras --group bench --group test
 
-      - name: Install com0com signed driver
-        id: com0com
+      - name: Validate configured COM pair
         shell: pwsh
-        continue-on-error: true
         run: |
-          choco install com0com -y --no-progress
-
-      - name: Provision com0com pair (COM50 / COM51)
-        id: pair
-        if: steps.com0com.outcome == 'success'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $setupc = "C:\Program Files (x86)\com0com\setupc.exe"
-          if (-not (Test-Path $setupc)) {
-            Write-Warning "setupc.exe not found at $setupc — Windows benchmarks will be skipped"
-            exit 0
+          $ports = $env:ANYSERIAL_WINDOWS_PAIR -split ',' | ForEach-Object { $_.Trim() }
+          if ($ports.Count -ne 2 -or -not $ports[0] -or -not $ports[1]) {
+            throw "ANYSERIAL_WINDOWS_PAIR must be 'COMA,COMB'; got '$env:ANYSERIAL_WINDOWS_PAIR'"
           }
-          if (Get-Variable -Name PSNativeCommandUseErrorActionPreference `
-              -ErrorAction SilentlyContinue) {
-            $PSNativeCommandUseErrorActionPreference = $false
+          $serial = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' `
+            -ErrorAction SilentlyContinue
+          $visible = @()
+          if ($serial) {
+            $visible = @($serial.PSObject.Properties.Value)
           }
-          $setupDir = Split-Path -Parent $setupc
-          Push-Location $setupDir
-          try {
-            function Invoke-Setupc {
-              param([Parameter(Mandatory = $true)][string[]] $Arguments)
-
-              $output = @(& $setupc @Arguments 2>&1)
-              $exitCode = $LASTEXITCODE
-              foreach ($line in $output) {
-                Write-Host $line
-              }
-              $failed = $exitCode -ne 0 -or [bool]($output -match "ERROR:")
-              if ($failed) {
-                Write-Warning "setupc $($Arguments -join ' ') failed; Windows benchmarks will be skipped"
-              }
-              [pscustomobject]@{
-                Ok = -not $failed
-                Output = $output
-              }
+          foreach ($port in $ports) {
+            if ($visible -notcontains $port) {
+              throw "Configured serial port $port is not visible in SERIALCOMM"
             }
-
-            # setupc.exe expects com0com.inf in the current working directory,
-            # so run it from its install dir rather than the repo checkout.
-            $list = Invoke-Setupc -Arguments @("list")
-            if ($list.Output -match "CNCA0") {
-              $changeA = Invoke-Setupc -Arguments @("change", "CNCA0", "PortName=COM50")
-              $changeB = Invoke-Setupc -Arguments @("change", "CNCB0", "PortName=COM51")
-              if (-not ($changeA.Ok -and $changeB.Ok)) {
-                Write-Warning "com0com reported a driver-update failure"
-              }
-            } else {
-              $install = Invoke-Setupc -Arguments @("install", "PortName=COM50", "PortName=COM51")
-              if (-not $install.Ok) {
-                Write-Warning "com0com reported a driver-install failure"
-              }
-            }
-            $serial = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' `
-              -ErrorAction SilentlyContinue
-            if ($serial -and ($serial.PSObject.Properties.Value -contains "COM50") `
-                -and ($serial.PSObject.Properties.Value -contains "COM51")) {
-              "pair=COM50,COM51" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-              Write-Host "com0com pair ready: COM50,COM51"
-            } else {
-              Write-Warning "COM50/COM51 not visible in SERIALCOMM after setupc; benchmarks will be skipped"
-              exit 0
-            }
-          } finally {
-            Pop-Location
           }
+          Write-Host "Windows serial pair ready: $($ports -join ',')"
 
       - name: Fetch baseline (most recent prior Windows bench run)
         id: baseline
-        if: steps.pair.outputs.pair != ''
         uses: dawidd6/action-download-artifact@v20
         with:
           workflow: bench.yml
@@ -238,10 +200,8 @@ jobs:
         continue-on-error: true
 
       - name: Run Windows benchmarks
-        if: steps.pair.outputs.pair != ''
         shell: pwsh
         env:
-          ANYSERIAL_WINDOWS_PAIR: ${{ steps.pair.outputs.pair }}
           ANYSERIAL_BENCH_HEAVY: ${{ inputs.heavy && '1' || '' }}
         run: |
           New-Item -ItemType Directory -Force -Path benchmarks/results | Out-Null
@@ -251,7 +211,7 @@ jobs:
             --benchmark-json=benchmarks/results/current.json
 
       - name: Compare against baseline (advisory)
-        if: steps.pair.outputs.pair != '' && hashFiles('baseline/**/current.json') != ''
+        if: hashFiles('baseline/**/current.json') != ''
         shell: pwsh
         run: |
           # Single-quoted strings avoid PowerShell's backtick escape so the
@@ -269,7 +229,6 @@ jobs:
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $fence
 
       - name: Add raw Windows run to summary
-        if: steps.pair.outputs.pair != ''
         shell: pwsh
         run: |
           $fence = '```'
@@ -280,14 +239,7 @@ jobs:
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $json
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $fence
 
-      - name: Report missing com0com (skipped benchmarks)
-        if: steps.pair.outputs.pair == ''
-        shell: pwsh
-        run: |
-          Write-Host "::warning::com0com pair unavailable — Windows benchmarks skipped"
-
       - name: Upload current Windows results
-        if: steps.pair.outputs.pair != ''
         uses: actions/upload-artifact@v7
         with:
           name: bench-results-windows-py${{ matrix.python }}-${{ github.run_number }}

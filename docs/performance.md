@@ -103,12 +103,15 @@ sibling integration test), so the effective latency per-byte is
 for the whole burst** — a ~1.2× factor at this depth that grows with
 queue size.
 
-## Windows (com0com)
+## Windows (Serial Pair)
 
 Windows numbers are published nightly from the
 [`bench-windows`](https://github.com/GraysonBellamy/anyserial/blob/main/.github/workflows/bench.yml)
-job on GitHub Actions `windows-latest` using a com0com virtual
-COM-port pair. Target matrix from
+job when repository variable `ANYSERIAL_RUN_SELF_HOSTED_WINDOWS=true`
+enables an `anyserial-windows-serial` self-hosted Windows runner with a
+pre-provisioned virtual or hardware COM-port pair. The pair defaults to
+`COM50,COM51` and can be overridden with repository variable
+`ANYSERIAL_WINDOWS_PAIR`. Target matrix from
 [design-windows-backend.md §11](https://github.com/GraysonBellamy/anyserial/blob/main/docs/design-windows-backend.md):
 
 | Scenario                                    | Target                              | Backend matrix |
@@ -124,13 +127,13 @@ uvloop column is absent — uvloop does not build on Windows.
 
 A reference table will populate here once the nightly job has
 accumulated enough baselines to publish stable medians; the
-fundamental constraint is GHA Windows runner noise, which is higher
-than the Linux runner's noise floor.
+fundamental constraint is Windows host and driver noise, which is
+higher than the Linux pty runner's noise floor.
 
 ### Windows-specific caveats
 
-- **com0com != real USB-serial.** Driver IRP turnaround adds ~1 ms of
-  floor latency even on an otherwise-idle system. Real FTDI / CP210x
+- **Virtual COM != real USB-serial.** Virtual-driver IRP turnaround
+  adds latency even on an otherwise-idle system. Real FTDI / CP210x
   adapters add more, and an FTDI adapter running its default 16 ms
   latency timer adds a lot more — see [Windows](windows.md#driver-specific-notes).
 - **No uvloop.** The Windows matrix is asyncio (Proactor) and trio
@@ -199,4 +202,4 @@ uv run pytest-benchmark compare benchmarks/results/*.json
   [macOS](darwin.md#low-latency-mode) / [BSD](bsd.md#low-latency-mode) /
   [Windows](windows.md#low-latency-mode)). The headline Linux numbers
   above were recorded with the low-latency knob engaged; the Windows
-  com0com section uses defaults.
+  serial-pair section uses driver defaults.
