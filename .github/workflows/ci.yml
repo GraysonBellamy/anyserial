@@ -186,15 +186,20 @@ jobs:
         with:
           operating_system: freebsd
           version: "15.0"
-          # Default shell is sh; stay minimal. Python 3.13 is available
-          # in pkg on FreeBSD 15. uv pulls its own managed toolchain.
+          # Default shell is sh; stay minimal. Python 3.13 is in pkg.
+          # uv has no FreeBSD binary (astral-sh/uv#1560) so we bootstrap
+          # a plain venv with pip + the project install instead. The job
+          # is unit-tests-only, so we don't need uv's groups/lockfile —
+          # just install the runtime dep + test deps directly.
           run: |
             set -e
-            sudo pkg install -y python313 curl
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH="$HOME/.cargo/bin:$PATH"
-            uv sync --python 3.13 --all-extras --group test
-            uv run --python 3.13 pytest tests/unit -q
+            sudo pkg install -y python313 git
+            python3.13 -m ensurepip --upgrade
+            python3.13 -m venv .venv
+            . .venv/bin/activate
+            pip install --upgrade pip
+            pip install -e '.[trio]' pytest hypothesis
+            pytest tests/unit -q
 
   windows-smoke:
     # Companion to ``windows-serial`` below (design-windows-backend.md
