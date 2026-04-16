@@ -45,8 +45,8 @@ Trio support is the one optional extra that matters on Windows:
 uv add "anyserial[trio]"
 ```
 
-`anyserial[uvloop]` is declared with a `platform_system != 'Windows'`
-marker — `uv`/`pip` will skip it on Windows without an error.
+`anyserial[uvloop]` is declared only for Linux and macOS —
+`uv`/`pip` will skip it on Windows without an error.
 
 ## Quick start
 

@@ -1,9 +1,9 @@
 # uvloop
 
 [uvloop](https://github.com/MagicStack/uvloop) is a libuv-based drop-in
-replacement for the stdlib `asyncio` event loop. On POSIX it typically
-trims 20–30% off per-wakeup latency for serial I/O on top of the
-stdlib selector — see [Performance](performance.md) for measured
+replacement for the stdlib `asyncio` event loop. On Linux and macOS it
+typically trims 20–30% off per-wakeup latency for serial I/O on top of
+the stdlib selector — see [Performance](performance.md) for measured
 numbers.
 
 ## Install
@@ -14,9 +14,8 @@ uv add "anyserial[uvloop]"
 pip install "anyserial[uvloop]"
 ```
 
-The `uvloop` extra pins `uvloop>=0.22.1` and is declared
-`platform_system != 'Windows'`, so it's a no-op on Windows
-installs.
+The `uvloop` extra pins `uvloop>=0.22.1` and is declared only for
+Linux and macOS installs. It is a no-op on Windows and BSD.
 
 ## Activating it
 
@@ -77,9 +76,9 @@ Skip it when:
 - You're already under budget on stock asyncio.
 - Your application pulls in trio — pick trio directly; uvloop is
   asyncio-only.
-- You're on Windows — uvloop doesn't build there. Use `winloop` (an
-  uvloop fork) via `pip install "anyserial[winloop]"` and the same
-  `use_uvloop=True` switch; Windows coverage is experimental.
+- You're on Windows or BSD. Use `winloop` on Windows via
+  `pip install "anyserial[winloop]"` and the same `use_uvloop=True`
+  switch; Windows coverage is experimental.
 
 ## Caveats
 

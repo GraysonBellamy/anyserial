@@ -41,7 +41,7 @@ pip install anyserial
 Optional extras:
 
 ```bash
-uv add "anyserial[uvloop]"              # POSIX uvloop event loop
+uv add "anyserial[uvloop]"              # Linux/macOS uvloop event loop
 uv add "anyserial[winloop]"             # Windows winloop event loop
 uv add "anyserial[trio]"                # trio runtime
 uv add "anyserial[discovery-pyudev]"    # richer Linux port discovery

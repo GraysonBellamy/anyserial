@@ -145,7 +145,13 @@ class MockBackend:
         concerned, but :meth:`open` must still be called to transition each
         backend into the open state and apply a :class:`SerialConfig`.
         """
-        sock_a, sock_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` with no args picks the right family per
+        # platform: AF_UNIX + SOCK_STREAM on POSIX, AF_INET emulated TCP
+        # loopback on Windows (where AF_UNIX may not be available
+        # depending on Python build / Windows SDK). Either way the pair
+        # is a connected, full-duplex stream that integrates with
+        # ``anyio.wait_readable`` via ``.fileno()``.
+        sock_a, sock_b = socket.socketpair()
         sock_a.setblocking(False)
         sock_b.setblocking(False)
         state_a = _MockState(sock=sock_a, path=path_a)

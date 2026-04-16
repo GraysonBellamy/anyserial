@@ -14,13 +14,14 @@ for the backend-support policy.
 | Backend | Loop | Default? | When to pick it |
 |---|---|---|---|
 | `asyncio` (default) | CPython `selector_events` (POSIX) / `proactor_events` (Windows) | Yes | Interop with the rest of the Python async ecosystem |
-| `asyncio` + `uvloop` | libuv | No | Lowest latency on POSIX; see [uvloop](uvloop.md). **POSIX only** — uvloop doesn't build on Windows. |
+| `asyncio` + `uvloop` | libuv | No | Lowest latency on Linux/macOS; see [uvloop](uvloop.md). Skipped when the `uvloop` module is unavailable. |
 | `trio` | Trio scheduler | No | Strong cancellation / nursery semantics; test under `trio` at minimum |
 
 All three are exercised in CI against every Linux / macOS integration
-test. The Windows matrix is asyncio (Proactor) and trio only — see
-[Windows backend](#windows-backend) below. Performance numbers live
-in [Performance](performance.md).
+test. FreeBSD smoke coverage runs asyncio and trio, skipping uvloop
+when the module is not installed. The Windows matrix is asyncio
+(Proactor) and trio only — see [Windows backend](#windows-backend)
+below. Performance numbers live in [Performance](performance.md).
 
 ## Running under a specific backend
 
@@ -50,7 +51,15 @@ The AnyIO pytest plugin ships inside `anyio` itself — no
 across the matrix:
 
 ```python
+import importlib.util
+import sys
+
 import pytest
+
+
+_UVLOOP_UNAVAILABLE = (
+    sys.platform == "win32" or importlib.util.find_spec("uvloop") is None
+)
 
 
 @pytest.fixture(
@@ -60,8 +69,8 @@ import pytest
             ("asyncio", {"use_uvloop": True}),
             id="uvloop",
             marks=pytest.mark.skipif(
-                "sys.platform == 'win32'",
-                reason="uvloop is POSIX-only",
+                _UVLOOP_UNAVAILABLE,
+                reason="uvloop is unsupported or not installed on this platform",
             ),
         ),
         pytest.param("trio", id="trio"),

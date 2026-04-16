@@ -32,7 +32,7 @@ trio = [
     { name = "trio" },
 ]
 uvloop = [
-    { name = "uvloop", marker = "sys_platform != 'win32'" },
+    { name = "uvloop", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 winloop = [
     { name = "winloop", marker = "sys_platform == 'win32'" },
@@ -82,7 +82,7 @@ requires-dist = [
     { name = "pyserial", marker = "extra == 'discovery-pyserial'", specifier = ">=3.5" },
     { name = "pyudev", marker = "sys_platform == 'linux' and extra == 'discovery-pyudev'", specifier = ">=0.24" },
     { name = "trio", marker = "extra == 'trio'", specifier = ">=0.27" },
-    { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'uvloop'", specifier = ">=0.22.1" },
+    { name = "uvloop", marker = "(sys_platform == 'darwin' and extra == 'uvloop') or (sys_platform == 'linux' and extra == 'uvloop')", specifier = ">=0.22.1" },
     { name = "winloop", marker = "sys_platform == 'win32' and extra == 'winloop'", specifier = ">=0.1.1" },
 ]
 provides-extras = ["discovery-pyserial", "discovery-pyudev", "trio", "uvloop", "winloop"]
