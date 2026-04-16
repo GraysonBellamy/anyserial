@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio
@@ -449,7 +450,7 @@ class TestTypedAttributes:
 
     async def test_path_attribute(self, pair: tuple[SerialPort, SerialPort]) -> None:
         a, _ = pair
-        assert str(a.extra(FileStreamAttribute.path)) == a.path
+        assert a.extra(FileStreamAttribute.path) == Path(a.path)
 
 
 class TestModemLines:
