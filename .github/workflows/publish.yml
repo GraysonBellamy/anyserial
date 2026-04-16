@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   FORCE_COLOR: "1"
   UV_FROZEN: "1"

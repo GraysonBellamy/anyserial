@@ -31,6 +31,9 @@ concurrency:
   group: bench-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
   FORCE_COLOR: "1"
   UV_FROZEN: "1"
