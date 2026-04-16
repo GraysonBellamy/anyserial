@@ -1,0 +1,259 @@
+name: Benchmarks
+
+# Nightly + manual runs of the pty-based benchmark suite. Hardware
+# benchmarks (real FTDI / CP210x adapters) are NOT run here — they need
+# a self-hosted runner with the adapters wired in. Document the wire-up
+# path so a future maintainer can flip them on without re-deriving the
+# requirements:
+#
+#   1. Provision a Linux self-hosted runner with adapters labelled
+#      ``hardware-ftdi``, ``hardware-cp210x``, etc.
+#   2. Add a parallel job here that sets ANYSERIAL_TEST_PORT and runs
+#      ``pytest tests/hardware/ -m hardware`` plus an adapter-specific
+#      bench script under benchmarks/hardware/ once it exists.
+#   3. Keep the pty job below as the always-on baseline so adapter-bench
+#      regressions are easy to attribute to library vs. driver changes.
+
+on:
+  schedule:
+    # 04:00 UTC — outside US/EU business hours; runner queues are quiet.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      heavy:
+        description: "Run heavy 128-port fan-out scenarios"
+        type: boolean
+        default: false
+
+# Don't cancel in-progress nightly runs — every successful run produces
+# a baseline used by the next one. Losing a run means losing a data point.
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_COLOR: "1"
+  UV_FROZEN: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  bench:
+    name: Pty benchmarks (linux py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: >
+          uv sync --python ${{ matrix.python }}
+          --all-extras --group bench --group test
+
+      # Pull the most recent prior bench artifact so we can diff against it.
+      # `if_no_artifact_found: warn` keeps the job green on the very first run
+      # (and any time GHA's artifact retention has expired the baselines).
+      - name: Fetch baseline (most recent prior bench run)
+        id: baseline
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          workflow: bench.yml
+          name_is_regexp: true
+          name: ^bench-results-py${{ matrix.python }}-\d+$
+          path: baseline/
+          if_no_artifact_found: warn
+          search_artifacts: true
+        continue-on-error: true
+
+      - name: Run benchmarks
+        env:
+          ANYSERIAL_BENCH_HEAVY: ${{ inputs.heavy && '1' || '' }}
+        run: |
+          mkdir -p benchmarks/results
+          uv run --python ${{ matrix.python }} pytest benchmarks/ \
+            --benchmark-only \
+            --benchmark-json=benchmarks/results/current.json
+
+      # Advisory only for now — runner variance on shared GHA hardware is
+      # high enough that a strict gate would flap. Once we have ~10 baselines
+      # to characterize the noise floor we can flip this to fail the job at
+      # `--benchmark-compare-fail=mean:10%` per DESIGN §26.1.
+      - name: Compare against baseline (advisory)
+        if: hashFiles('baseline/**/current.json') != ''
+        run: |
+          {
+            echo "## Benchmark delta vs. previous run"
+            echo
+            echo '```'
+            uv run --python ${{ matrix.python }} pytest-benchmark compare \
+              baseline/*/current.json benchmarks/results/current.json \
+              --columns=median,mean,stddev,ops || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Always emit a human-readable summary, baseline or not.
+      - name: Add raw run to summary
+        run: |
+          {
+            echo "## Raw bench results"
+            echo
+            echo '```json'
+            cat benchmarks/results/current.json | head -200
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload current results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-py${{ matrix.python }}-${{ github.run_number }}
+          path: benchmarks/results/current.json
+          retention-days: 90
+
+  bench-windows:
+    # Per design-windows-backend.md §11: published Windows benchmark
+    # numbers for the four scenarios (round-trip, throughput, fanout,
+    # open/close) over a com0com virtual COM-port pair.
+    #
+    # Best-effort like the Windows test job in ci.yml — if com0com install
+    # fails, the bench module skips cleanly (gates on ANYSERIAL_WINDOWS_PAIR)
+    # and the job still completes. The Linux pty bench above is the
+    # always-on baseline; Windows is supplementary coverage.
+    name: Windows com0com benchmarks (py${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: >
+          uv sync --python ${{ matrix.python }}
+          --all-extras --group bench --group test
+
+      - name: Install com0com signed driver
+        id: com0com
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          choco install com0com -y --no-progress
+
+      - name: Provision com0com pair (COM50 / COM51)
+        id: pair
+        if: steps.com0com.outcome == 'success'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $setupc = "C:\Program Files (x86)\com0com\setupc.exe"
+          if (-not (Test-Path $setupc)) {
+            Write-Error "setupc.exe not found at $setupc — com0com install incomplete"
+            exit 1
+          }
+          $existing = & $setupc list 2>&1
+          if ($existing -match "CNCA0") {
+            & $setupc change CNCA0 PortName=COM50
+            & $setupc change CNCB0 PortName=COM51
+          } else {
+            & $setupc install PortName=COM50 PortName=COM51
+          }
+          $serial = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' `
+            -ErrorAction SilentlyContinue
+          if ($serial -and ($serial.PSObject.Properties.Value -contains "COM50") `
+              -and ($serial.PSObject.Properties.Value -contains "COM51")) {
+            "pair=COM50,COM51" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "com0com pair ready: COM50,COM51"
+          } else {
+            Write-Warning "COM50/COM51 not visible in SERIALCOMM after setupc"
+            exit 1
+          }
+
+      - name: Fetch baseline (most recent prior Windows bench run)
+        id: baseline
+        if: steps.pair.outputs.pair != ''
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          workflow: bench.yml
+          name_is_regexp: true
+          name: ^bench-results-windows-py${{ matrix.python }}-\d+$
+          path: baseline/
+          if_no_artifact_found: warn
+          search_artifacts: true
+        continue-on-error: true
+
+      - name: Run Windows benchmarks
+        if: steps.pair.outputs.pair != ''
+        shell: pwsh
+        env:
+          ANYSERIAL_WINDOWS_PAIR: ${{ steps.pair.outputs.pair }}
+          ANYSERIAL_BENCH_HEAVY: ${{ inputs.heavy && '1' || '' }}
+        run: |
+          New-Item -ItemType Directory -Force -Path benchmarks/results | Out-Null
+          uv run --python ${{ matrix.python }} pytest `
+            benchmarks/test_windows_throughput.py `
+            --benchmark-only `
+            --benchmark-json=benchmarks/results/current.json
+
+      - name: Compare against baseline (advisory)
+        if: steps.pair.outputs.pair != '' && hashFiles('baseline/**/current.json') != ''
+        shell: pwsh
+        run: |
+          # Single-quoted strings avoid PowerShell's backtick escape so the
+          # triple-backtick markdown fences land literally in the summary.
+          $fence = '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '## Windows benchmark delta vs. previous run'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ''
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $fence
+          $baselineFile = (Get-ChildItem baseline -Recurse -Filter current.json | Select-Object -First 1).FullName
+          $compare = uv run --python ${{ matrix.python }} pytest-benchmark compare `
+            $baselineFile `
+            benchmarks/results/current.json `
+            --columns=median,mean,stddev,ops 2>&1
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($compare | Out-String)
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $fence
+
+      - name: Add raw Windows run to summary
+        if: steps.pair.outputs.pair != ''
+        shell: pwsh
+        run: |
+          $fence = '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '## Raw Windows bench results'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ''
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($fence + 'json')
+          $json = Get-Content benchmarks/results/current.json -TotalCount 200 | Out-String
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $json
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $fence
+
+      - name: Report missing com0com (skipped benchmarks)
+        if: steps.pair.outputs.pair == ''
+        shell: pwsh
+        run: |
+          Write-Host "::warning::com0com pair unavailable — Windows benchmarks skipped"
+
+      - name: Upload current Windows results
+        if: steps.pair.outputs.pair != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-windows-py${{ matrix.python }}-${{ github.run_number }}
+          path: benchmarks/results/current.json
+          retention-days: 90

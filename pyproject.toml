@@ -1,0 +1,271 @@
+[build-system]
+requires = ["hatchling>=1.25", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+
+[project]
+name = "anyserial"
+dynamic = ["version"]
+description = "Low-latency async serial I/O for Python, built on AnyIO."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Grayson Bellamy", email = "gbellamy@umd.edu" },
+]
+keywords = ["serial", "tty", "uart", "async", "anyio", "rs232", "rs485"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AnyIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: BSD",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: System :: Hardware",
+    "Topic :: Terminals :: Serial",
+    "Typing :: Typed",
+]
+dependencies = [
+    "anyio>=4.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/GraysonBellamy/anyserial"
+Documentation = "https://graysonbellamy.github.io/anyserial/"
+Repository = "https://github.com/GraysonBellamy/anyserial"
+Issues = "https://github.com/GraysonBellamy/anyserial/issues"
+Changelog = "https://github.com/GraysonBellamy/anyserial/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+uvloop = ["uvloop>=0.22.1; platform_system != 'Windows'"]
+winloop = ["winloop>=0.1.1; platform_system == 'Windows'"]
+trio = ["trio>=0.27"]
+discovery-pyudev = ["pyudev>=0.24; platform_system == 'Linux'"]
+discovery-pyserial = ["pyserial>=3.5"]
+
+# ---------------------------------------------------------------------------
+# Hatch build
+# ---------------------------------------------------------------------------
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/anyserial/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/anyserial",
+    "tests",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "DESIGN.md",
+    "pyproject.toml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anyserial"]
+
+# ---------------------------------------------------------------------------
+# uv — dependency groups (PEP 735)
+# ---------------------------------------------------------------------------
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    { include-group = "type" },
+    { include-group = "test" },
+    { include-group = "docs" },
+    "pre-commit>=4.0",
+]
+lint = [
+    "ruff>=0.8",
+]
+type = [
+    "mypy>=1.13",
+    "pyright>=1.1.390",
+]
+test = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "coverage[toml]>=7.6",
+    "hypothesis>=6.120",
+    "trio>=0.27",
+]
+bench = [
+    "pytest-benchmark>=4.0",
+]
+docs = [
+    "zensical>=0.0.33",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+extend-exclude = ["src/anyserial/_version.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "PL",   # pylint
+    "RUF",  # ruff-specific
+    "PTH",  # flake8-use-pathlib
+    "TC",   # flake8-type-checking (was TCH)
+    "ANN",  # flake8-annotations
+    "ASYNC",# flake8-async
+    "S",    # flake8-bandit (security)
+    "A",    # flake8-builtins
+    "N",    # pep8-naming
+    "D",    # pydocstyle
+    "PERF", # perflint
+    "FURB", # refurb
+    "LOG",  # flake8-logging
+    "G",    # flake8-logging-format
+]
+ignore = [
+    "D203",    # 1 blank line before class (conflicts with D211)
+    "D213",    # multi-line summary second line (conflicts with D212)
+    "D107",    # missing docstring in __init__
+    "PLR0913", # too many arguments
+    "S101",    # assert used — fine in tests
+    "ANN401",  # Any in annotations — sometimes legitimate
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",       # docstrings not required in tests
+    "ANN",     # annotations not required in tests
+    "PLR2004", # magic values are fine in tests
+    "S",       # bandit rules relaxed in tests
+]
+"benchmarks/**" = ["D", "ANN", "PLR2004"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 88
+
+# ---------------------------------------------------------------------------
+# mypy — strict
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+enable_error_code = [
+    "redundant-expr",
+    "truthy-bool",
+    "ignore-without-code",
+    "unused-awaitable",
+    "possibly-undefined",
+]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+files = ["src", "tests"]
+exclude = ["src/anyserial/_version.py"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# ---------------------------------------------------------------------------
+# Pyright — secondary type checker
+# ---------------------------------------------------------------------------
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["src/anyserial/_version.py", "**/__pycache__"]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownVariableType = "warning"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+    "--import-mode=importlib",
+    # Hardware tests are opt-in: every collection still walks them so
+    # broken syntax / imports surface, but they are deselected unless
+    # the caller passes `-m hardware` (which overrides this default —
+    # only the last `-m` on the effective command line applies).
+    "-m",
+    "not hardware",
+]
+xfail_strict = true
+markers = [
+    "hardware: tests that require real serial hardware (opt-in; set ANYSERIAL_TEST_PORT)",
+    "slow: tests that are slow (>1s)",
+    "windows_virtual_serial: tests that require a com0com virtual COM-port pair (Windows + opt-in via ANYSERIAL_WINDOWS_PAIR=COMA,COMB)",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:anyio.*",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source_pkgs = ["anyserial"]
+branch = true
+parallel = true
+omit = [
+    "src/anyserial/_version.py",
+]
+
+[tool.coverage.paths]
+anyserial = ["src/anyserial", "*/anyserial/src/anyserial"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+skip_covered = false
+exclude_also = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@overload",
+    "@abstractmethod",
+    "\\.\\.\\.",
+]

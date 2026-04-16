@@ -1,0 +1,350 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+    branches: [main, v2]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  UV_FROZEN: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  lint:
+    name: Lint + format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install dependencies
+        run: uv sync --group lint
+      - name: Ruff check
+        run: uv run ruff check --output-format=github
+      - name: Ruff format check
+        run: uv run ruff format --check
+
+  typecheck:
+    name: Type check (mypy + pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install dependencies
+        run: uv sync --group type --group test
+      - name: mypy
+        run: uv run mypy
+      - name: pyright
+        run: uv run pyright
+
+  test-unit:
+    name: Unit tests (${{ matrix.os }} · py${{ matrix.python }})
+    needs: [lint, typecheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.13", "3.14"]
+        include:
+          # Linux-only: free-threaded build check (advisory)
+          - os: ubuntu-latest
+            python: "3.13t"
+            allow-failure: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow-failure == true }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+      - name: Run unit + property + typing-check suites (full AnyIO backend matrix)
+        # MockBackend-driven — no kernel pty required, runs clean on macOS.
+        # Integration tests against real ptys live in the test-integration-linux
+        # job below (DESIGN §27.7).
+        run: >
+          uv run --python ${{ matrix.python }} pytest
+          tests/unit tests/property tests/typing_checks
+          --cov --cov-report=xml -v
+      - name: Upload coverage
+        if: matrix.python == '3.13' && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          flags: unit
+          fail_ci_if_error: false
+
+  test-integration-linux:
+    name: Integration tests — Linux pty (py${{ matrix.python }})
+    needs: [lint, typecheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+      - name: Run pty-backed integration tests (full AnyIO backend matrix)
+        # Linux-only test modules (test_linux_*.py) stay selected here via
+        # per-file skips; Darwin-compatible pty + POSIX ioctl / backend
+        # tests also run on this runner. Real termios + os.read/write +
+        # anyio.wait_readable path covered here; MockBackend coverage
+        # lives in test-unit.
+        run: >
+          uv run --python ${{ matrix.python }} pytest
+          tests/integration
+          --cov --cov-report=xml -v
+      - name: Upload coverage
+        if: matrix.python == '3.13'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          flags: integration
+          fail_ci_if_error: false
+
+  test-integration-macos:
+    name: Integration tests — macOS pty (py${{ matrix.python }})
+    needs: [lint, typecheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+      - name: Run pty-backed integration tests on Darwin (full AnyIO backend matrix)
+        # Darwin ships ``pty`` / ``termios``, so POSIX ioctl, PosixBackend,
+        # and SerialPort pty coverage run here against the DarwinBackend.
+        # Linux-only files (TCSETS2 / ASYNC_LOW_LATENCY / TIOCSRS485
+        # coverage) self-skip on this platform.
+        run: >
+          uv run --python ${{ matrix.python }} pytest
+          tests/integration
+          --cov --cov-report=xml -v
+      - name: Upload coverage
+        if: matrix.python == '3.13'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          flags: integration-darwin
+          fail_ci_if_error: false
+
+  freebsd-smoke:
+    name: Unit-test smoke — FreeBSD (best-effort)
+    needs: [lint]
+    # FreeBSD CI is best-effort per DESIGN §36: BSD support is
+    # "hardware-test gated before first-class claims". This job runs
+    # unit tests only (no integration, no hardware) so regressions in
+    # the BSD backend / discovery logic surface early even while we
+    # wait on real-hardware validation. Running on push only, not on
+    # every PR — cross-platform VM actions are slow enough that paying
+    # the cost on every PR is wasteful compared to nightly main.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run unit tests on FreeBSD 14
+        uses: cross-platform-actions/action@v1.0.0
+        with:
+          operating_system: freebsd
+          version: "14.0"
+          # Default shell is sh; stay minimal. Python 3.13 is available
+          # in pkg on FreeBSD 14. uv pulls its own managed toolchain.
+          run: |
+            set -e
+            pkg install -y python313 curl
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            uv sync --python 3.13 --all-extras --group test
+            uv run --python 3.13 pytest tests/unit -q
+
+  windows-smoke:
+    # Companion to ``windows-serial`` below (design-windows-backend.md
+    # §10.5). Kept as a fallback: the smoke job has no external driver
+    # dependency, so if com0com install or the kernel-level signed driver
+    # behaviour breaks the larger job on a GHA image refresh, we still get
+    # notified that the package imports cleanly.
+    name: Windows import smoke
+    needs: [lint]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+      - name: Install Python 3.13
+        run: uv python install 3.13
+      - name: Install package
+        run: uv sync --python 3.13
+      - name: Import smoke test
+        run: uv run --python 3.13 python -c "import anyserial; print(anyserial.__version__)"
+
+  windows-serial:
+    # Per design-windows-backend.md §10.5: full Windows unit + integration
+    # coverage on real Win32 + ProactorEventLoop / Trio runtimes, with
+    # com0com providing the virtual COM-port pair.
+    #
+    # The com0com install step is best-effort: if Chocolatey or the signed
+    # driver fails on a particular GHA image refresh, the integration step
+    # skips cleanly (the test module gates on ``ANYSERIAL_WINDOWS_PAIR``).
+    # Unit tests still run regardless — they exercise the Windows ctypes /
+    # DCB / SetupAPI bindings without needing a real port.
+    name: Windows tests + integration (py${{ matrix.python }})
+    needs: [lint, typecheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+
+      # Run unit tests first — they don't need com0com and surface any
+      # Windows-side import / ctypes binding failures before we spend time
+      # wrangling the driver install.
+      - name: Run unit tests (Windows)
+        run: >
+          uv run --python ${{ matrix.python }} pytest
+          tests/unit tests/property tests/typing_checks
+          --cov --cov-report=xml -v
+
+      # com0com install: signed kernel driver via Chocolatey. Best-effort
+      # so a driver-install regression on GHA's image doesn't fail the
+      # whole job — the integration step gates on the env var being set.
+      - name: Install com0com signed driver
+        id: com0com
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          choco install com0com -y --no-progress
+
+      # Provision a virtual pair with deterministic port names. com0com's
+      # default install creates an internal CNCA0/CNCB0 pair that doesn't
+      # surface as proper COM ports until renamed via setupc.exe.
+      - name: Provision com0com pair (COM50 / COM51)
+        id: pair
+        if: steps.com0com.outcome == 'success'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $setupc = "C:\Program Files (x86)\com0com\setupc.exe"
+          if (-not (Test-Path $setupc)) {
+            Write-Error "setupc.exe not found at $setupc — com0com install incomplete"
+            exit 1
+          }
+          # If a CNCA0/CNCB0 pair already exists from the default install,
+          # rename its endpoints to COM50/COM51. Otherwise install a new
+          # pair with those names directly.
+          $existing = & $setupc list 2>&1
+          if ($existing -match "CNCA0") {
+            & $setupc change CNCA0 PortName=COM50
+            & $setupc change CNCB0 PortName=COM51
+          } else {
+            & $setupc install PortName=COM50 PortName=COM51
+          }
+          # Verify the pair shows up in SERIALCOMM before declaring success.
+          $serial = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' `
+            -ErrorAction SilentlyContinue
+          if ($serial -and ($serial.PSObject.Properties.Value -contains "COM50") `
+              -and ($serial.PSObject.Properties.Value -contains "COM51")) {
+            "pair=COM50,COM51" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "com0com pair ready: COM50,COM51"
+          } else {
+            Write-Warning "COM50/COM51 not visible in SERIALCOMM after setupc"
+            exit 1
+          }
+
+      - name: Run Windows integration tests (com0com)
+        if: steps.pair.outputs.pair != ''
+        env:
+          ANYSERIAL_WINDOWS_PAIR: ${{ steps.pair.outputs.pair }}
+        run: >
+          uv run --python ${{ matrix.python }} pytest
+          tests/integration/test_windows_backend.py -q -v
+
+      - name: Report missing com0com (skipped integration)
+        if: steps.pair.outputs.pair == ''
+        shell: pwsh
+        run: |
+          Write-Host "::warning::com0com pair unavailable — Windows integration tests skipped"
+
+      - name: Upload coverage
+        if: matrix.python == '3.13'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          flags: windows
+          fail_ci_if_error: false
+
+  build:
+    name: Build sdist + wheel
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs needs full history
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Build
+        run: uv build
+      - name: Check artifacts
+        run: |
+          ls -la dist/
+          uv run --with twine twine check dist/*
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
