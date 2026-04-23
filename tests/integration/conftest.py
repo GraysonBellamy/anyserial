@@ -37,7 +37,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 
 def _apply_raw_mode(fd: int) -> None:
@@ -60,7 +60,7 @@ def _apply_raw_mode(fd: int) -> None:
 
 
 @contextmanager
-def raw_pty_pair() -> Iterator[tuple[int, str]]:
+def raw_pty_pair() -> Generator[tuple[int, str]]:
     """Yield ``(controller_fd, follower_path)`` in raw mode.
 
     The follower fd is closed before the yield so the caller's
@@ -87,7 +87,7 @@ def raw_pty_pair() -> Iterator[tuple[int, str]]:
 
 
 @pytest.fixture
-def pty_port() -> Iterator[tuple[int, str]]:
+def pty_port() -> Generator[tuple[int, str]]:
     """Pytest-fixture wrapper around :func:`raw_pty_pair`."""
     with raw_pty_pair() as pair:
         yield pair

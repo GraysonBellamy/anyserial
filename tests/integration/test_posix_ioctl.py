@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 if sys.platform == "win32":
     pytest.skip("POSIX-only", allow_module_level=True)
@@ -58,7 +58,7 @@ _skip_pty_master_inq = pytest.mark.skipif(
 
 
 @contextmanager
-def pty_pair() -> Iterator[tuple[int, int]]:
+def pty_pair() -> Generator[tuple[int, int]]:
     """Yield ``(controller_fd, follower_fd)`` and guarantee they are closed."""
     controller, follower = pty.openpty()
     try:

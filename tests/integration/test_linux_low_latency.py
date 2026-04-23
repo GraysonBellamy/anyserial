@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 if not sys.platform.startswith("linux"):
     pytest.skip("Linux-only", allow_module_level=True)
@@ -36,7 +36,7 @@ from anyserial.exceptions import UnsupportedFeatureError
 
 
 @contextmanager
-def pty_path() -> Iterator[tuple[int, int, str]]:
+def pty_path() -> Generator[tuple[int, int, str]]:
     """Yield ``(controller, follower, path)`` — follower anchors the tty alive."""
     controller, follower = pty.openpty()
     path = os.ttyname(follower)

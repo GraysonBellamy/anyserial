@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 if sys.platform == "win32":
     pytest.skip("POSIX-only", allow_module_level=True)
@@ -57,7 +57,7 @@ _skip_pty_master_inq = pytest.mark.skipif(
 
 
 @contextmanager
-def pty_pair() -> Iterator[tuple[int, int]]:
+def pty_pair() -> Generator[tuple[int, int]]:
     """Yield ``(controller, follower)`` fds in raw mode with live data flow.
 
     The follower is switched to raw mode up front: by default the pty line
@@ -96,7 +96,7 @@ def pty_pair() -> Iterator[tuple[int, int]]:
 
 
 @contextmanager
-def pty_path() -> Iterator[tuple[int, int, str]]:
+def pty_path() -> Generator[tuple[int, int, str]]:
     """Yield ``(controller, follower, path)`` where a second fd can be opened.
 
     The follower fd is kept open as an anchor so the tty stays alive; the
