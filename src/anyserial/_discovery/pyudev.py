@@ -15,7 +15,7 @@ remediation path is one copy-paste.
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from anyserial.discovery import PortInfo
 from anyserial.exceptions import UnsupportedPlatformError
@@ -44,13 +44,19 @@ def enumerate_ports() -> list[PortInfo]:
         raise UnsupportedPlatformError(msg)
 
     try:
-        import pyudev  # type: ignore[import-untyped]  # noqa: PLC0415 — lazy by extra
+        # ``reportMissingImports`` covers Windows/macOS dev hosts where
+        # the Linux-only ``pyudev`` extra is not installed; pyright still
+        # resolves it on the Linux CI typecheck job.
+        import pyudev  # noqa: PLC0415 — lazy by extra  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         msg = f"pyudev not installed; {_INSTALL_HINT}"
         raise ImportError(msg) from exc
 
-    context = pyudev.Context()
-    devices: Iterable[object] = context.list_devices(subsystem="tty")  # pyright: ignore[reportUnknownMemberType]
+    # ``pyudev`` ships no stubs, so every member access is ``Unknown`` on
+    # Linux CI as well — the ignores keep the existing pyright contract
+    # (the runtime values are exercised by the Linux integration tests).
+    context = cast("Any", pyudev.Context())  # pyright: ignore[reportUnknownMemberType]
+    devices = cast("Iterable[object]", context.list_devices(subsystem="tty"))
     return sorted(_iter_devices(devices), key=lambda p: p.device)
 
 

@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Windows: `HandleWrapper` now declares `__weakref__` in `__slots__` so it
+  can be registered with the asyncio `IocpProactor._registered` `WeakSet`
+  on CPython >= 3.12. Without this slot every `open_serial_port` call on
+  the asyncio runtime path raised `TypeError: cannot create weak
+  reference to 'HandleWrapper' object` at registration time, blocking
+  every consumer that goes through `WindowsBackend.open` on the asyncio
+  loop.
+
 ## [0.1.1]
 
 Initial release.

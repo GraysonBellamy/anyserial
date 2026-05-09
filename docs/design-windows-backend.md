@@ -116,7 +116,9 @@ class _HandleWrapper:
     Trio's ``register_with_iocp`` accepts a raw int — the wrapper is only
     needed on the asyncio path.
     """
-    __slots__ = ("_handle",)
+    # ``__weakref__`` is required because CPython >= 3.12's
+    # ``IocpProactor._registered`` is a ``weakref.WeakSet``.
+    __slots__ = ("_handle", "__weakref__")
     def __init__(self, handle: int) -> None:
         self._handle = handle
     def fileno(self) -> int:

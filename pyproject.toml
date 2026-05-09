@@ -185,6 +185,14 @@ docstring-code-line-length = 88
 
 [tool.mypy]
 python_version = "3.13"
+# Pin the analysis platform so mypy results are reproducible regardless of
+# the host the developer (or pre-push hook) runs on. CI's typecheck job
+# runs on Linux; without this pin, running mypy on Windows or macOS
+# rewrites every ``sys.platform`` branch and produces a different error
+# set (e.g. Linux-only ``termios`` calls and Darwin/BSD backends look
+# "unreachable" on Windows). Windows-specific code is exercised by the
+# Windows CI job and by Windows-host tests at runtime, not by mypy.
+platform = "linux"
 strict = true
 warn_unreachable = true
 warn_redundant_casts = true
@@ -207,6 +215,15 @@ module = "tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
+# pyudev is a Linux-only optional dep (declared via ``platform_system ==
+# 'Linux'`` markers). Its ``import-untyped`` / ``import-not-found`` state
+# depends on whether the developer's host is Linux. Treat it as ``Any``
+# either way so the lazy import in ``_discovery/pyudev.py`` does not need
+# host-specific ``# type: ignore`` codes.
+[[tool.mypy.overrides]]
+module = "pyudev"
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------------------
 # Pyright — secondary type checker
 # ---------------------------------------------------------------------------
@@ -215,6 +232,11 @@ disallow_incomplete_defs = false
 include = ["src", "tests"]
 exclude = ["src/anyserial/_version.py", "**/__pycache__"]
 pythonVersion = "3.13"
+# Pin the analysis platform — CI runs pyright on Ubuntu, so without this
+# every developer running ``uv run pyright`` on Windows or macOS gets a
+# different error set (e.g. Linux-only ``termios`` constants flagged as
+# unknown). Mirrors ``[tool.mypy].platform``.
+pythonPlatform = "Linux"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = "warning"
 reportUnknownMemberType = "warning"

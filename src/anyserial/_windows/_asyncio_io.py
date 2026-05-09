@@ -45,7 +45,12 @@ class HandleWrapper:
     See design-windows-backend.md §3.
     """
 
-    __slots__ = ("_handle",)
+    # ``__weakref__`` is required because CPython >= 3.12's ``IocpProactor``
+    # stores registered objects in a ``weakref.WeakSet`` (Lib/asyncio/
+    # windows_events.py); ``_register_with_iocp(obj)`` therefore takes a
+    # weak reference to ``obj``. Slotted classes need to declare
+    # ``__weakref__`` explicitly to be weak-referenceable.
+    __slots__ = ("__weakref__", "_handle")
 
     def __init__(self, handle: int) -> None:
         self._handle = handle
