@@ -119,8 +119,8 @@ class TestBasicIO:
                 assert received == payload
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(send_all)
-                tg.start_soon(drain_peer)
+                _ = tg.start_soon(send_all)
+                _ = tg.start_soon(drain_peer)
 
     async def test_receive_into_zero_copy(self, pty_port: tuple[int, str]) -> None:
         controller, path = pty_port
@@ -173,8 +173,8 @@ class TestConcurrency:
                 await _flush_controller_output(controller, b"echoed")
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(reader)
-                tg.start_soon(writer)
+                _ = tg.start_soon(reader)
+                _ = tg.start_soon(writer)
 
             assert received == [b"echoed"]
 
@@ -192,9 +192,9 @@ class TestConcurrency:
                     errors.append(exc)
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(reader)
+                _ = tg.start_soon(reader)
                 await anyio.sleep(0.02)
-                tg.start_soon(reader)
+                _ = tg.start_soon(reader)
                 await anyio.sleep(0.02)
                 tg.cancel_scope.cancel()
 
@@ -231,7 +231,7 @@ class TestCancellation:
                 errors.append(exc)
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(reader)
+            _ = tg.start_soon(reader)
             await anyio.sleep(0.02)
             await port.aclose()
 
@@ -324,7 +324,7 @@ class TestRuntimeReconfigurePty:
                 received.append(data)
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(reader)
+                _ = tg.start_soon(reader)
                 # Yield so ``reader`` gets a chance to park before the
                 # reconfigure fires, then change baud while it sleeps.
                 await anyio.sleep(0.01)

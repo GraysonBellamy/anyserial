@@ -131,9 +131,9 @@ class TestResourceGuards:
         # Two tasks read at the same time. No data is available, so both
         # will park — the second must raise BusyResourceError immediately.
         async with anyio.create_task_group() as tg:
-            tg.start_soon(read_once)
+            _ = tg.start_soon(read_once)
             await anyio.sleep(0.01)
-            tg.start_soon(read_once)
+            _ = tg.start_soon(read_once)
             await anyio.sleep(0.01)
             tg.cancel_scope.cancel()
 
@@ -160,9 +160,9 @@ class TestResourceGuards:
                 errors.append(exc)
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(first)
+            _ = tg.start_soon(first)
             await anyio.sleep(0.01)
-            tg.start_soon(second)
+            _ = tg.start_soon(second)
             await anyio.sleep(0.01)
             tg.cancel_scope.cancel()
 
@@ -179,8 +179,8 @@ class TestResourceGuards:
             await a.send(b"duplex")
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(reader)
-            tg.start_soon(writer)
+            _ = tg.start_soon(reader)
+            _ = tg.start_soon(writer)
 
         assert received == [b"duplex"]
 
@@ -277,7 +277,7 @@ class TestClose:
 
         try:
             async with anyio.create_task_group() as tg:
-                tg.start_soon(reader)
+                _ = tg.start_soon(reader)
                 await anyio.sleep(0.02)
                 await b.aclose()
         finally:
@@ -391,8 +391,8 @@ class TestConfigure:
         cfg_a = SerialConfig(baudrate=9_600)
         cfg_b = SerialConfig(baudrate=19_200)
         async with anyio.create_task_group() as tg:
-            tg.start_soon(a.configure, cfg_a)
-            tg.start_soon(a.configure, cfg_b)
+            _ = tg.start_soon(a.configure, cfg_a)
+            _ = tg.start_soon(a.configure, cfg_b)
 
         # ``configure`` on the mock is synchronous, so observed_configure
         # can never see two concurrent entries even without the lock —
@@ -420,8 +420,8 @@ class TestConfigure:
             await a.configure(SerialConfig(baudrate=57_600))
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(reader)
-            tg.start_soon(reconfigure)
+            _ = tg.start_soon(reader)
+            _ = tg.start_soon(reconfigure)
             # Give both tasks a scheduler turn before we wake the reader
             # by sending through a; then drain.
             await checkpoint()

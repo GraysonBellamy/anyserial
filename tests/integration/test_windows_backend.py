@@ -82,7 +82,7 @@ class TestRoundTrip:
             await open_serial_port(b_path, cfg) as b,
             anyio.create_task_group() as tg,
         ):
-            tg.start_soon(a.send, b"ping\n")
+            _ = tg.start_soon(a.send, b"ping\n")
             received = await b.receive(64)
             assert received.startswith(b"ping")
             await b.send(b"pong\n")
@@ -146,7 +146,7 @@ class TestLifecycle:
                 await anyio.sleep(0.05)
                 await a.send(b"late")
 
-            tg.start_soon(delayed_send)
+            _ = tg.start_soon(delayed_send)
             data = await b.receive(16)
             assert data.startswith(b"late")
 

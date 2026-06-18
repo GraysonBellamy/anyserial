@@ -315,7 +315,7 @@ class TestHotPath:
                 with pytest.raises(SerialDisconnectedError):
                     await toy_port.receive(16)
 
-            tg.start_soon(reader)
+            _ = tg.start_soon(reader)
             await anyio.sleep(0.01)
             await toy_port.aclose()
 
@@ -364,7 +364,7 @@ class TestLifecycle:
     ) -> None:
         # Two receives racing on the same port must trip the resource guard.
         async with anyio.create_task_group() as tg:
-            tg.start_soon(toy_port.receive, 16)
+            _ = tg.start_soon(toy_port.receive, 16)
             await anyio.sleep(0.01)
             with pytest.raises(anyio.BusyResourceError):
                 await toy_port.receive(16)

@@ -44,10 +44,13 @@ def enumerate_ports() -> list[PortInfo]:
         raise UnsupportedPlatformError(msg)
 
     try:
-        # ``reportMissingImports`` covers Windows/macOS dev hosts where
-        # the Linux-only ``pyudev`` extra is not installed; pyright still
-        # resolves it on the Linux CI typecheck job.
-        import pyudev  # noqa: PLC0415 — lazy by extra  # pyright: ignore[reportMissingImports]
+        # Host-dependent diagnostics, both suppressed precisely:
+        # ``reportMissingImports`` fires on Windows/macOS dev hosts where
+        # the Linux-only ``pyudev`` extra is absent; on the Linux CI
+        # typecheck job (and any host with the extra installed) the import
+        # resolves but ``pyudev`` ships no stubs, so ``reportMissingTypeStubs``
+        # fires instead.
+        import pyudev  # noqa: PLC0415 — lazy by extra  # pyright: ignore[reportMissingImports, reportMissingTypeStubs]
     except ImportError as exc:
         msg = f"pyudev not installed; {_INSTALL_HINT}"
         raise ImportError(msg) from exc
