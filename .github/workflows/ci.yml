@@ -85,7 +85,7 @@ jobs:
         # Integration tests against real ptys live in the test-integration-linux
         # job below (DESIGN §27.7).
         run: >
-          uv run --python ${{ matrix.python }} pytest
+          uv run --no-sync --python ${{ matrix.python }} pytest
           tests/unit tests/property tests/typing_checks
           --cov --cov-report=xml -v
       - name: Upload coverage
@@ -122,7 +122,7 @@ jobs:
         # anyio.wait_readable path covered here; MockBackend coverage
         # lives in test-unit.
         run: >
-          uv run --python ${{ matrix.python }} pytest
+          uv run --no-sync --python ${{ matrix.python }} pytest
           tests/integration
           --cov --cov-report=xml -v
       - name: Upload coverage
@@ -158,7 +158,7 @@ jobs:
         # Linux-only files (TCSETS2 / ASYNC_LOW_LATENCY / TIOCSRS485
         # coverage) self-skip on this platform.
         run: >
-          uv run --python ${{ matrix.python }} pytest
+          uv run --no-sync --python ${{ matrix.python }} pytest
           tests/integration
           --cov --cov-report=xml -v
       - name: Upload coverage
@@ -251,7 +251,7 @@ jobs:
 
       - name: Run unit tests (Windows)
         run: >
-          uv run --python ${{ matrix.python }} pytest
+          uv run --no-sync --python ${{ matrix.python }} pytest
           tests/unit tests/property tests/typing_checks
           --cov --cov-report=xml -v
 
@@ -332,7 +332,7 @@ jobs:
           Write-Host "Windows serial pair ready: $($ports -join ',')"
       - name: Run Windows integration tests
         run: >
-          uv run --python ${{ matrix.python }} pytest
+          uv run --no-sync --python ${{ matrix.python }} pytest
           tests/integration/test_windows_backend.py -q -v
 
   build:
