@@ -79,7 +79,7 @@ jobs:
       - name: Install Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+        run: uv sync --python ${{ matrix.python }} --no-default-groups --all-extras --group test
       - name: Run unit + property + typing-check suites (full AnyIO backend matrix)
         # MockBackend-driven — no kernel pty required, runs clean on macOS.
         # Integration tests against real ptys live in the test-integration-linux
@@ -114,7 +114,7 @@ jobs:
       - name: Install Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+        run: uv sync --python ${{ matrix.python }} --no-default-groups --all-extras --group test
       - name: Run pty-backed integration tests (full AnyIO backend matrix)
         # Linux-only test modules (test_linux_*.py) stay selected here via
         # per-file skips; Darwin-compatible pty + POSIX ioctl / backend
@@ -151,7 +151,7 @@ jobs:
       - name: Install Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+        run: uv sync --python ${{ matrix.python }} --no-default-groups --all-extras --group test
       - name: Run pty-backed integration tests on Darwin (full AnyIO backend matrix)
         # Darwin ships ``pty`` / ``termios``, so POSIX ioctl, PosixBackend,
         # and SerialPort pty coverage run here against the DarwinBackend.
@@ -247,7 +247,7 @@ jobs:
       - name: Install Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+        run: uv sync --python ${{ matrix.python }} --no-default-groups --all-extras --group test
 
       - name: Run unit tests (Windows)
         run: >
@@ -310,7 +310,7 @@ jobs:
       - name: Install Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python }} --all-extras --group test
+        run: uv sync --python ${{ matrix.python }} --no-default-groups --all-extras --group test
       - name: Validate configured COM pair
         shell: pwsh
         run: |
