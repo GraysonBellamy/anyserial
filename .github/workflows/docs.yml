@@ -17,12 +17,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -40,17 +34,24 @@ jobs:
       - name: Build docs
         run: uv run zensical build --clean
       - if: github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-artifact@v5
         with:
+          name: site
           path: site/
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+          path: ./site
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=anyserial-docs --branch=main

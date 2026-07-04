@@ -41,7 +41,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/GraysonBellamy/anyserial"
-Documentation = "https://graysonbellamy.github.io/anyserial/"
+Documentation = "https://anyserial.graysonbellamy.dev/"
 Repository = "https://github.com/GraysonBellamy/anyserial"
 Issues = "https://github.com/GraysonBellamy/anyserial/issues"
 Changelog = "https://github.com/GraysonBellamy/anyserial/blob/main/CHANGELOG.md"
