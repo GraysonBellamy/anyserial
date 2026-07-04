@@ -1,7 +1,7 @@
 [project]
 site_name = "anyserial"
 site_description = "Low-latency async serial I/O for Python, built on AnyIO."
-site_url = "https://graysonbellamy.github.io/anyserial/"
+site_url = "https://anyserial.graysonbellamy.dev/"
 repo_url = "https://github.com/GraysonBellamy/anyserial"
 repo_name = "GraysonBellamy/anyserial"
 edit_uri = "edit/main/docs/"

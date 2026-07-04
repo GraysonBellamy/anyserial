@@ -153,7 +153,7 @@ assert await b.receive(5) == b"hello"
 
 ## Documentation
 
-Full documentation lives at <https://graysonbellamy.github.io/anyserial/>. Starting points:
+Full documentation lives at <https://anyserial.graysonbellamy.dev/>. Starting points:
 
 - [Quickstart](docs/quickstart.md)
 - [Configuration](docs/configuration.md)
