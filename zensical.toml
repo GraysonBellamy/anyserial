@@ -71,6 +71,19 @@ accent = "purple"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to light mode"
 
+[[project.extra.social]]
+icon = "fontawesome/solid/house"
+link = "https://graysonbellamy.dev"
+name = "graysonbellamy.dev"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/GraysonBellamy/anyserial"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/anyserial/"
+
 [project.markdown_extensions.admonition]
 
 [project.markdown_extensions.attr_list]
