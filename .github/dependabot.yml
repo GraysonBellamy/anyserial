@@ -16,3 +16,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # hypothesis 6.156 added a mandatory Rust/pyo3 extension shipped only
+      # as cp3xx-abi3 wheels. The stable-ABI wheel can't load on free-threaded
+      # CPython (3.13t), and there is no FreeBSD wheel, so both advisory CI
+      # jobs fall back to the sdist and the pyo3 build fails (pyo3 <0.30 has no
+      # free-threaded <3.14 support). Pinned <6.156 in pyproject + ci.yml; hold
+      # Dependabot back too. Remove once hypothesis ships free-threaded/BSD
+      # wheels or makes the Rust core optional.
+      - dependency-name: "hypothesis"
+        versions: [">=6.156"]

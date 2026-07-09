@@ -194,6 +194,13 @@ jobs:
           # a plain venv with pip + the project install instead. The job
           # is unit-tests-only, so we don't need uv's groups/lockfile —
           # just install the runtime dep + test deps directly.
+          #
+          # hypothesis is pinned <6.156 to mirror the cap in the pyproject
+          # ``test`` group: 6.156 added a mandatory Rust/pyo3 extension with
+          # no FreeBSD wheel, so pip falls back to the sdist and the maturin
+          # build fails ("Unsupported platform: 313", "Rust not found"). This
+          # bypasses the lockfile, so the constraint must be repeated here.
+          # Lift in lockstep with the pyproject cap.
           run: |
             set -e
             sudo pkg install -y python313 git
@@ -201,7 +208,7 @@ jobs:
             python3.13 -m venv .venv
             . .venv/bin/activate
             pip install --upgrade pip
-            pip install -e '.[trio]' pytest hypothesis
+            pip install -e '.[trio]' pytest 'hypothesis<6.156'
             pytest tests/unit -q
 
   windows-smoke:
