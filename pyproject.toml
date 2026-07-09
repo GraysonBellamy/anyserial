@@ -115,7 +115,7 @@ test = [
     # build fails — pyo3 <0.30 refuses to compile against free-threaded
     # CPython <3.14. Lift once hypothesis ships free-threaded wheels (or
     # makes the Rust core optional) so the advisory 3.13t CI job stays green.
-    "hypothesis>=6.120,<6.156",
+    "hypothesis>=6.120,<6.157",
     "trio>=0.27",
 ]
 bench = [
