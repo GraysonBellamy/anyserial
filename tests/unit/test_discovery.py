@@ -106,7 +106,7 @@ class TestPortInfo:
 
     def test_kw_only_construction(self) -> None:
         with pytest.raises(TypeError):
-            PortInfo("/dev/ttyS0")  # type: ignore[misc]
+            PortInfo("/dev/ttyS0")  # type: ignore[call-arg]
 
 
 class TestListSerialPorts:

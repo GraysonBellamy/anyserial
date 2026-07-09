@@ -109,7 +109,13 @@ test = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "coverage[toml]>=7.13.5",
-    "hypothesis>=6.120",
+    # Cap below 6.156: that release added a mandatory Rust/pyo3 extension
+    # shipped only as cp3xx-abi3 wheels. The stable-ABI wheel can't load on
+    # free-threaded CPython, so on 3.13t uv falls back to the sdist and the
+    # build fails — pyo3 <0.30 refuses to compile against free-threaded
+    # CPython <3.14. Lift once hypothesis ships free-threaded wheels (or
+    # makes the Rust core optional) so the advisory 3.13t CI job stays green.
+    "hypothesis>=6.120,<6.156",
     "trio>=0.27",
 ]
 bench = [
