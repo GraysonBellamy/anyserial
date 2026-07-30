@@ -276,7 +276,8 @@ Opening is explicit and async. `__init__` never touches the OS — this is testa
 from collections.abc import Buffer
 from typing import override
 
-type BytesLike = Buffer     # PEP 688 — bytes, bytearray, memoryview, array.array, numpy, ...
+type BytesLike = Buffer  # PEP 688 — bytes, bytearray, memoryview, array.array, numpy, ...
+
 
 class SerialPort(anyio.abc.ByteStream):
     # ByteStream introspection is exposed via AnyIO typed attributes (see §7.4),
@@ -291,9 +292,9 @@ class SerialPort(anyio.abc.ByteStream):
     @override
     async def receive(self, max_bytes: int = 65536) -> bytes: ...
     @override
-    async def send(self, item: bytes) -> None: ...          # exact ByteSendStream signature
+    async def send(self, item: bytes) -> None: ...  # exact ByteSendStream signature
     @override
-    async def send_eof(self) -> None: ...                   # drains; see §14.2
+    async def send_eof(self) -> None: ...  # drains; see §14.2
     @override
     async def aclose(self) -> None: ...
 
@@ -303,7 +304,7 @@ class SerialPort(anyio.abc.ByteStream):
     # --- Serial-specific I/O extensions -------------------------------------
     async def receive_into(self, buffer: bytearray | memoryview) -> int: ...
     async def receive_available(self, *, limit: int | None = None) -> bytes: ...
-    async def send_buffer(self, data: BytesLike) -> None: ...   # zero-copy bytes-like
+    async def send_buffer(self, data: BytesLike) -> None: ...  # zero-copy bytes-like
 
     # --- Runtime reconfiguration (§10) --------------------------------------
     async def configure(self, config: SerialConfig) -> None: ...
@@ -311,14 +312,17 @@ class SerialPort(anyio.abc.ByteStream):
     # --- Buffer and line control -------------------------------------------
     async def reset_input_buffer(self) -> None: ...
     async def reset_output_buffer(self) -> None: ...
-    async def drain(self) -> None: ...                    # async TIOCOUTQ poll; fast path
-    async def drain_exact(self) -> None: ...              # tcdrain via worker thread; FIFO-exact
+    async def drain(self) -> None: ...  # async TIOCOUTQ poll; fast path
+    async def drain_exact(self) -> None: ...  # tcdrain via worker thread; FIFO-exact
     async def send_break(self, duration: float = 0.25) -> None: ...
 
     # --- Modem / control lines ---------------------------------------------
     async def modem_lines(self) -> ModemLines: ...
     async def set_control_lines(
-        self, *, rts: bool | None = None, dtr: bool | None = None,
+        self,
+        *,
+        rts: bool | None = None,
+        dtr: bool | None = None,
     ) -> None: ...
 
     # --- Snapshots (non-awaiting) ------------------------------------------
@@ -382,9 +386,9 @@ Usage:
 from anyio.streams.file import FileStreamAttribute
 from anyserial import SerialStreamAttribute
 
-fd           = port.extra(FileStreamAttribute.fileno)          # POSIX only
+fd = port.extra(FileStreamAttribute.fileno)  # POSIX only
 capabilities = port.extra(SerialStreamAttribute.capabilities)
-config       = port.extra(SerialStreamAttribute.config)
+config = port.extra(SerialStreamAttribute.config)
 ```
 
 This is the canonical AnyIO pattern for exposing backend details. It keeps generic stream composition working (code that knows nothing about `SerialPort` can still ask for typed attributes it understands), and it lets the Windows backend cleanly omit the POSIX-only `fileno` attribute without a type-level compromise.
@@ -410,6 +414,7 @@ _PROVIDER = anyio.from_thread.BlockingPortalProvider(
     backend_options={"use_uvloop": True},  # configurable
 )
 
+
 class SerialPort:  # sync
     def __init__(self, config: SerialConfig) -> None: ...
     def open(self) -> None:
@@ -419,8 +424,10 @@ class SerialPort:  # sync
             open_serial_port(self._path, self._config)
         )
         self._async_port = self._async_cm.__enter__()
+
     def receive(self, max_bytes=65536, timeout: float | None = None) -> bytes:
         return self._portal.call(self._do_receive, max_bytes, timeout)
+
     # ...
 ```
 
@@ -454,23 +461,26 @@ All user-facing enums use `StrEnum` (PEP 663 / 3.11+) for stable string serializ
 ```python
 from enum import StrEnum
 
+
 class ByteSize(StrEnum):
-    FIVE  = "5"
-    SIX   = "6"
+    FIVE = "5"
+    SIX = "6"
     SEVEN = "7"
     EIGHT = "8"
 
+
 class Parity(StrEnum):
-    NONE  = "none"
-    ODD   = "odd"
-    EVEN  = "even"
-    MARK  = "mark"
+    NONE = "none"
+    ODD = "odd"
+    EVEN = "even"
+    MARK = "mark"
     SPACE = "space"
 
+
 class StopBits(StrEnum):
-    ONE            = "1"
+    ONE = "1"
     ONE_POINT_FIVE = "1.5"
-    TWO            = "2"
+    TWO = "2"
 ```
 
 A `StrEnum` instance is also a `str`, so logs show `"Parity.NONE"` repr and `"none"` when formatted, and `json.dumps({"parity": Parity.NONE})` works out of the box.
@@ -547,31 +557,31 @@ Serial hardware is inconsistent. Rather than forcing users to infer feature supp
 ```python
 @dataclass(frozen=True, slots=True)
 class SerialCapabilities:
-    platform: str                     # "linux", "darwin", "freebsd", ...
-    backend: str                      # "linux", "darwin", "bsd", "posix", "mock"
-    custom_baudrate:           Capability
-    mark_space_parity:         Capability
-    one_point_five_stop_bits:  Capability
-    xon_xoff:                  Capability
-    rts_cts:                   Capability
-    dtr_dsr:                   Capability
-    modem_lines:               Capability
-    break_signal:              Capability
-    exclusive_access:          Capability
-    low_latency:               Capability
-    rs485:                     Capability
-    input_waiting:             Capability
-    output_waiting:            Capability
-    port_discovery:            Capability
+    platform: str  # "linux", "darwin", "freebsd", ...
+    backend: str  # "linux", "darwin", "bsd", "posix", "mock"
+    custom_baudrate: Capability
+    mark_space_parity: Capability
+    one_point_five_stop_bits: Capability
+    xon_xoff: Capability
+    rts_cts: Capability
+    dtr_dsr: Capability
+    modem_lines: Capability
+    break_signal: Capability
+    exclusive_access: Capability
+    low_latency: Capability
+    rs485: Capability
+    input_waiting: Capability
+    output_waiting: Capability
+    port_discovery: Capability
 ```
 
 Each feature is modeled as a tri-state, not a bool:
 
 ```python
 class Capability(StrEnum):
-    SUPPORTED   = "supported"
+    SUPPORTED = "supported"
     UNSUPPORTED = "unsupported"
-    UNKNOWN     = "unknown"     # platform advertises; actual driver/device will say yes or no
+    UNKNOWN = "unknown"  # platform advertises; actual driver/device will say yes or no
 ```
 
 **Why tri-state.** Serial feature support is inherently multi-level:
@@ -587,9 +597,9 @@ A boolean collapses levels 1–3 into one bit and lies to the user. The `Capabil
 
 ```python
 class UnsupportedPolicy(StrEnum):
-    RAISE  = "raise"     # default; explicit feature requests raise
-    WARN   = "warn"      # best-effort with warnings.warn(...)
-    IGNORE = "ignore"    # silent best-effort
+    RAISE = "raise"  # default; explicit feature requests raise
+    WARN = "warn"  # best-effort with warnings.warn(...)
+    IGNORE = "ignore"  # silent best-effort
 ```
 
 Default is `RAISE`. Users who want best-effort behavior (e.g., `low_latency=True` on a kernel that lacks the ioctl) opt in explicitly via `SerialConfig(..., unsupported_policy=UnsupportedPolicy.WARN)`. Core configuration errors (invalid baud, impossible flow-control combo) always raise — policy applies only to *optional* features.
@@ -602,26 +612,34 @@ Default is `RAISE`. Users who want best-effort behavior (e.g., `low_latency=True
 class SerialError(OSError):
     """Base class for serial-port failures."""
 
+
 class ConfigurationError(SerialError, ValueError):
     """The supplied SerialConfig is internally invalid (bad baud, impossible flow-control combo)."""
+
 
 class PortNotFoundError(SerialError, FileNotFoundError):
     """The requested port does not exist."""
 
+
 class PortBusyError(SerialError):
     """The port is already in use or locked exclusively."""
+
 
 class UnsupportedFeatureError(SerialError, NotImplementedError):
     """A requested feature is unsupported by the backend, driver, or device."""
 
+
 class UnsupportedConfigurationError(SerialError, ValueError):
     """A requested configuration is unsupported at runtime (driver/device rejects it)."""
+
 
 class SerialClosedError(SerialError, anyio.ClosedResourceError):
     """Operation attempted on a closed port."""
 
+
 class SerialDisconnectedError(SerialError, anyio.BrokenResourceError):
     """Device was removed or became unusable during I/O."""
+
 
 class UnsupportedAsyncBackendError(SerialError, RuntimeError):
     """The active async backend is unsupported."""
@@ -695,7 +713,7 @@ async def aclose(self) -> None:
         if self._closed:
             return
         self._closed = True
-        anyio.notify_closing(self._fd)   # wake pending wait_readable/writable
+        anyio.notify_closing(self._fd)  # wake pending wait_readable/writable
         os.close(self._fd)
         self._fd = -1
 ```
@@ -711,10 +729,11 @@ AnyIO 4.12 dropped `sniffio` as a direct dependency. `anyserial` does not import
 The library does not own the process event loop. It never calls `uvloop.install()` or mutates global loop state. Users choose:
 
 ```python
-anyio.run(main)                                        # asyncio default
-anyio.run(main, backend="asyncio",
-          backend_options={"use_uvloop": True})        # uvloop (POSIX) / winloop (Windows, 4.12+)
-anyio.run(main, backend="trio")                        # trio
+anyio.run(main)  # asyncio default
+anyio.run(
+    main, backend="asyncio", backend_options={"use_uvloop": True}
+)  # uvloop (POSIX) / winloop (Windows, 4.12+)
+anyio.run(main, backend="trio")  # trio
 ```
 
 `uvloop` (POSIX) and `winloop` (Windows, wired up by AnyIO 4.12's `use_uvloop` shorthand) are documented and benchmarked but not required dependencies.
@@ -781,7 +800,7 @@ async def receive(self, max_bytes: int = 65536) -> bytes:
         buf = bytearray(min(max_bytes, self._config.default_receive_size))
         fd = self._backend.fileno()
         while True:
-            await anyio.wait_readable(fd)        # checkpoint + backpressure
+            await anyio.wait_readable(fd)  # checkpoint + backpressure
             self._raise_if_closed()
             try:
                 count = self._backend.read_nonblocking(buf)
@@ -807,6 +826,7 @@ async def receive(self, max_bytes: int = 65536) -> bytes:
 async def send(self, item: bytes) -> None:
     with self._send_guard:
         await self._send_buffer(memoryview(item))
+
 
 async def _send_buffer(self, view: memoryview) -> None:
     self._raise_if_closed()
@@ -836,8 +856,8 @@ async def aclose(self) -> None:
         self._closed = True
         fd = self._backend.fileno()
         with anyio.CancelScope(shield=True):
-            anyio.notify_closing(fd)     # wakes pending wait_readable / wait_writable
-            self._backend.close()        # sync: os.close, restore latency timer, etc.
+            anyio.notify_closing(fd)  # wakes pending wait_readable / wait_writable
+            self._backend.close()  # sync: os.close, restore latency timer, etc.
 ```
 
 ### 12.4 Handling syscalls that would block
@@ -868,11 +888,11 @@ async def send_break(self, duration: float = 0.25) -> None:
     with self._send_guard:
         self._raise_if_closed()
         fd = self._backend.fileno()
-        fcntl.ioctl(fd, termios.TIOCSBRK)        # start break — ~µs
+        fcntl.ioctl(fd, termios.TIOCSBRK)  # start break — ~µs
         try:
-            await anyio.sleep(duration)          # cancellable async wait
+            await anyio.sleep(duration)  # cancellable async wait
         finally:
-            fcntl.ioctl(fd, termios.TIOCCBRK)    # stop break — ~µs
+            fcntl.ioctl(fd, termios.TIOCCBRK)  # stop break — ~µs
 ```
 
 Strictly better than `tcsendbreak`: cancellable, non-blocking, no worker thread. The `finally` guarantees the break is de-asserted even if the coroutine is cancelled mid-sleep. Supported on Linux, macOS, and the BSDs.
@@ -885,14 +905,14 @@ Strictly better than `tcsendbreak`: cancellable, non-blocking, no worker thread.
 async def drain(self) -> None:
     with self._send_guard:
         self._raise_if_closed()
-        bps = max(self._config.baudrate // 10, 1)   # ~10 bits per byte framed
+        bps = max(self._config.baudrate // 10, 1)  # ~10 bits per byte framed
         while True:
             self._raise_if_closed()
-            pending = self._backend.output_waiting()   # TIOCOUTQ, ~µs
+            pending = self._backend.output_waiting()  # TIOCOUTQ, ~µs
             if pending == 0:
                 return
             wait_s = max(pending / bps, 0.001)
-            await anyio.sleep(min(wait_s, 0.050))      # cap per-poll interval
+            await anyio.sleep(min(wait_s, 0.050))  # cap per-poll interval
 ```
 
 Fully async, cancellable, no worker thread. Typical call does 2–5 polls; per-poll cost is one ioctl.
@@ -951,7 +971,8 @@ The core stream is **unbuffered from the user's perspective** — one `receive()
 
 ```python
 from anyio.streams.buffered import BufferedByteStream
-buffered = BufferedByteStream(port)              # full-duplex wrapper (AnyIO 4.10+)
+
+buffered = BufferedByteStream(port)  # full-duplex wrapper (AnyIO 4.10+)
 line = await buffered.receive_until(b"\n", max_bytes=4096)
 hdr = await buffered.receive_exactly(8)
 await buffered.send(payload)
@@ -1013,10 +1034,10 @@ Users wanting a real shutdown call `await port.drain()` then `await port.aclose(
 Primitives (all from `anyio`):
 
 ```python
-self._receive_guard  = anyio.ResourceGuard("reading from")
-self._send_guard     = anyio.ResourceGuard("writing to")
+self._receive_guard = anyio.ResourceGuard("reading from")
+self._send_guard = anyio.ResourceGuard("writing to")
 self._configure_lock = anyio.Lock()
-self._close_lock     = anyio.Lock()
+self._close_lock = anyio.Lock()
 ```
 
 **On `Lock(fast_acquire=True)`.** AnyIO provides a fast-path constructor arg for the uncontended case. Do not enable it by default — the configure and close locks are rarely contended, so the fast path buys nothing. Turn it on only if benchmarks show a measurable difference.
@@ -1042,7 +1063,9 @@ Termios handling is pure and composable. Each concern is a small function over a
 
 ```python
 def apply_raw_mode(attrs: TermiosAttrs) -> TermiosAttrs: ...
-def apply_baudrate(attrs: TermiosAttrs, baudrate: int, ops: PlatformOps) -> tuple[TermiosAttrs, BaudPlan]: ...
+def apply_baudrate(
+    attrs: TermiosAttrs, baudrate: int, ops: PlatformOps
+) -> tuple[TermiosAttrs, BaudPlan]: ...
 def apply_byte_size(attrs: TermiosAttrs, byte_size: ByteSize) -> TermiosAttrs: ...
 def apply_parity(attrs: TermiosAttrs, parity: Parity) -> TermiosAttrs: ...
 def apply_stop_bits(attrs: TermiosAttrs, stop_bits: StopBits) -> TermiosAttrs: ...
@@ -1299,6 +1322,7 @@ Backends that own an `O_NONBLOCK` fd and rely on the caller to do async readines
 from typing import Protocol, runtime_checkable
 from collections.abc import Buffer
 
+
 @runtime_checkable
 class SyncSerialBackend(Protocol):
     @property
@@ -1319,18 +1343,22 @@ class SyncSerialBackend(Protocol):
 
     # Configuration + control — sync termios/ioctl calls (all fast)
     def configure(self, config: SerialConfig) -> None: ...
-    def reset_input_buffer(self) -> None: ...              # tcflush(TCIFLUSH)
-    def reset_output_buffer(self) -> None: ...             # tcflush(TCOFLUSH)
-    def set_break(self, on: bool) -> None: ...             # TIOCSBRK / TIOCCBRK (no duration; SerialPort owns the sleep)
-    def tcdrain_blocking(self) -> None: ...                # blocking tcdrain; only called via to_thread for drain_exact
+    def reset_input_buffer(self) -> None: ...  # tcflush(TCIFLUSH)
+    def reset_output_buffer(self) -> None: ...  # tcflush(TCOFLUSH)
+    def set_break(
+        self, on: bool
+    ) -> None: ...  # TIOCSBRK / TIOCCBRK (no duration; SerialPort owns the sleep)
+    def tcdrain_blocking(
+        self,
+    ) -> None: ...  # blocking tcdrain; only called via to_thread for drain_exact
 
     # Modem / control lines
     def modem_lines(self) -> ModemLines: ...
     def set_control_lines(self, *, rts: bool | None = None, dtr: bool | None = None) -> None: ...
 
     # Snapshots
-    def input_waiting(self) -> int: ...                    # FIONREAD / TIOCINQ
-    def output_waiting(self) -> int: ...                   # TIOCOUTQ
+    def input_waiting(self) -> int: ...  # FIONREAD / TIOCINQ
+    def output_waiting(self) -> int: ...  # TIOCOUTQ
 ```
 
 **Contract for `read_nonblocking` / `write_nonblocking`:**
@@ -1368,7 +1396,9 @@ class AsyncSerialBackend(Protocol):
     async def send_break(self, duration: float) -> None: ...
 
     async def modem_lines(self) -> ModemLines: ...
-    async def set_control_lines(self, *, rts: bool | None = None, dtr: bool | None = None) -> None: ...
+    async def set_control_lines(
+        self, *, rts: bool | None = None, dtr: bool | None = None
+    ) -> None: ...
 
     def input_waiting(self) -> int: ...
     def output_waiting(self) -> int: ...
@@ -1380,10 +1410,10 @@ The Windows backend (§24.5, M10) will implement this Protocol by whatever mecha
 
 ```python
 async def open_serial_port(path: str, config: SerialConfig) -> SerialPort:
-    backend = _select_backend(path, config)   # platform factory
+    backend = _select_backend(path, config)  # platform factory
     if isinstance(backend, SyncSerialBackend):
-        backend.open(path, config)            # sync open is fine
-        return _PosixSerialPort(backend)      # uses wait_readable loop
+        backend.open(path, config)  # sync open is fine
+        return _PosixSerialPort(backend)  # uses wait_readable loop
     if isinstance(backend, AsyncSerialBackend):
         await backend.open(path, config)
         return _AsyncBackendSerialPort(backend)  # delegates directly
@@ -1544,7 +1574,7 @@ Marker-gated. Not run in default CI. Scenarios:
 
     if _IS_LINUX:
         return linux_specific_value
-    return fallback          # stays reachable on every host
+    return fallback  # stays reachable on every host
     ```
 
 2. **Use `@pytest.mark.skipif(_IS_LINUX, reason=...)` instead of inline skips.** Skipif expressions are evaluated at collection time, not as narrowing-carrying type predicates, so post-skip code isn't considered unreachable.
@@ -1561,11 +1591,12 @@ AnyIO ships its pytest plugin inside the `anyio` package itself — **do not dep
 # tests/conftest.py
 import pytest
 
+
 @pytest.fixture(
     params=[
         pytest.param(("asyncio", {"use_uvloop": False}), id="asyncio"),
-        pytest.param(("asyncio", {"use_uvloop": True}),  id="asyncio+uvloop"),
-        pytest.param("trio",                             id="trio"),
+        pytest.param(("asyncio", {"use_uvloop": True}), id="asyncio+uvloop"),
+        pytest.param("trio", id="trio"),
     ]
 )
 def anyio_backend(request: pytest.FixtureRequest) -> object:
@@ -1760,14 +1791,14 @@ Future opt-in diagnostics (not in the initial release; designed here so the shap
 ```python
 @dataclass(frozen=True, slots=True)
 class SerialStats:
-    bytes_read:     int
-    bytes_written:  int
-    read_syscalls:  int
+    bytes_read: int
+    bytes_written: int
+    read_syscalls: int
     write_syscalls: int
-    receive_waits:  int
-    send_waits:     int
-    eagain_count:   int
-    eintr_count:    int
+    receive_waits: int
+    send_waits: int
+    eagain_count: int
+    eintr_count: int
 ```
 
 Enabled via `SerialConfig(..., collect_stats=True)` in a later minor release. When disabled (default), stats collection is a single `if not self._stats: return` guard — zero-cost on the hot path. Exposed via `port.stats()` returning a snapshot dataclass.

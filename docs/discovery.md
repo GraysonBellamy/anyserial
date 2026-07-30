@@ -40,10 +40,10 @@ Every discovered port is a frozen, hashable `PortInfo` dataclass:
 ```python
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PortInfo:
-    device: str                  # always populated
+    device: str  # always populated
     name: str | None = None
     description: str | None = None
-    hwid: str | None = None      # "USB VID:PID=0403:6001 SER=A12345BC LOCATION=1-1"
+    hwid: str | None = None  # "USB VID:PID=0403:6001 SER=A12345BC LOCATION=1-1"
     vid: int | None = None
     pid: int | None = None
     serial_number: str | None = None
@@ -65,7 +65,7 @@ match = await find_serial_port(
     vid=0x0403,
     pid=0x6001,
     serial_number="A12345BC",  # optional
-    device="/dev/ttyUSB0",     # optional
+    device="/dev/ttyUSB0",  # optional
 )
 ```
 

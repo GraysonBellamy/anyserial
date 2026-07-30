@@ -256,7 +256,7 @@ from anyserial import open_serial_port
 
 async with await open_serial_port(r"\\.\COM3") as port:
     with anyio.move_on_after(0.1):
-        data = await port.receive(1024)    # cancels cleanly after 100 ms
+        data = await port.receive(1024)  # cancels cleanly after 100 ms
 ```
 
 `aclose()` follows a shielded, idempotent sequence:

@@ -165,6 +165,7 @@ ignore = [
     "D213",    # multi-line summary second line (conflicts with D212)
     "D107",    # missing docstring in __init__
     "PLR0913", # too many arguments
+    "PLR0917", # too many positional arguments
     "S101",    # assert used — fine in tests
     "ANN401",  # Any in annotations — sometimes legitimate
 ]

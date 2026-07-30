@@ -30,7 +30,7 @@ AnyIO's `anyio.run` takes a `backend=` argument:
 ```python
 import anyio
 
-anyio.run(main)                            # asyncio (default)
+anyio.run(main)  # asyncio (default)
 anyio.run(main, backend="asyncio")
 anyio.run(main, backend="trio")
 ```
@@ -57,9 +57,7 @@ import sys
 import pytest
 
 
-_UVLOOP_UNAVAILABLE = (
-    sys.platform == "win32" or importlib.util.find_spec("uvloop") is None
-)
+_UVLOOP_UNAVAILABLE = sys.platform == "win32" or importlib.util.find_spec("uvloop") is None
 
 
 @pytest.fixture(
@@ -81,8 +79,7 @@ def anyio_backend(request: pytest.FixtureRequest) -> object:
 
 
 @pytest.mark.anyio
-async def test_echo() -> None:
-    ...
+async def test_echo() -> None: ...
 ```
 
 The `anyio_backend` fixture is the AnyIO plugin's single convention;

@@ -103,8 +103,8 @@ drivers). Instead of silently ignoring or always raising,
 ```python
 from anyserial import SerialConfig, UnsupportedPolicy
 
-SerialConfig(low_latency=True, unsupported_policy=UnsupportedPolicy.RAISE)   # default
-SerialConfig(low_latency=True, unsupported_policy=UnsupportedPolicy.WARN)    # RuntimeWarning
+SerialConfig(low_latency=True, unsupported_policy=UnsupportedPolicy.RAISE)  # default
+SerialConfig(low_latency=True, unsupported_policy=UnsupportedPolicy.WARN)  # RuntimeWarning
 SerialConfig(low_latency=True, unsupported_policy=UnsupportedPolicy.IGNORE)  # silent
 ```
 
@@ -159,6 +159,7 @@ async with await open_serial_port("/dev/ttyUSB0", SerialConfig()) as port:
     assert port.config.baudrate == 115_200
 
     from anyserial import SerialStreamAttribute
+
     same = port.extra(SerialStreamAttribute.config)
 ```
 
@@ -184,7 +185,7 @@ SerialConfig(
     byte_size=ByteSize.EIGHT,
     parity=Parity.NONE,
     stop_bits=StopBits.ONE,
-    flow_control=FlowControl(),         # xon_xoff=False, rts_cts=False, dtr_dsr=False
+    flow_control=FlowControl(),  # xon_xoff=False, rts_cts=False, dtr_dsr=False
     exclusive=False,
     hangup_on_close=True,
     low_latency=False,

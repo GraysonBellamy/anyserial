@@ -57,12 +57,14 @@ AnyIO 4.12 dropped `sniffio` as a direct dependency (anyio/#1021). We do
 def detect_runtime() -> Literal["asyncio", "trio"]:
     try:
         import asyncio
+
         asyncio.get_running_loop()
         return "asyncio"
     except RuntimeError:
         pass
     try:
         import trio
+
         trio.lowlevel.current_task()
         return "trio"
     except (ImportError, RuntimeError):
@@ -116,13 +118,17 @@ class _HandleWrapper:
     Trio's ``register_with_iocp`` accepts a raw int — the wrapper is only
     needed on the asyncio path.
     """
+
     # ``__weakref__`` is required because CPython >= 3.12's
     # ``IocpProactor._registered`` is a ``weakref.WeakSet``.
     __slots__ = ("_handle", "__weakref__")
+
     def __init__(self, handle: int) -> None:
         self._handle = handle
+
     def fileno(self) -> int:
         return self._handle
+
 
 class WindowsBackend:
     async def open(self, path, config):
@@ -140,9 +146,7 @@ class WindowsBackend:
     async def receive_into(self, buffer):
         if self._runtime == "trio":
             return await _trio_io.readinto(self._handle, buffer)
-        return await _asyncio_io.readinto(
-            self._handle, self._handle_wrapper, buffer
-        )
+        return await _asyncio_io.readinto(self._handle, self._handle_wrapper, buffer)
 ```
 
 **Handle wrapper (asyncio only).** CPython's
@@ -165,10 +169,12 @@ Use Trio's batteries-included helpers:
 ```python
 import trio
 
+
 async def readinto(handle: int, buffer: bytearray | memoryview) -> int:
     # register_with_iocp called once in open(); idempotent-check not needed
     # because we track it on WindowsBackend.
     return await trio.lowlevel.readinto_overlapped(handle, buffer)
+
 
 async def write(handle: int, data: memoryview) -> int:
     return await trio.lowlevel.write_overlapped(handle, data)
@@ -184,18 +190,21 @@ Minimum version: **`trio >= 0.22`**.
 ### Asyncio path (`_asyncio_io.py`)
 
 ```python
-import _overlapped                         # CPython private but ABI-stable since 3.4
+import _overlapped  # CPython private but ABI-stable since 3.4
 from asyncio import get_running_loop
 
 _NULL = 0
+
 
 async def register(handle_wrapper: _HandleWrapper) -> None:
     """Associate the wrapped handle with the proactor's completion port."""
     proactor = get_running_loop()._proactor
     proactor._register_with_iocp(handle_wrapper)
 
+
 async def readinto(
-    handle: int, handle_wrapper: _HandleWrapper,
+    handle: int,
+    handle_wrapper: _HandleWrapper,
     buffer: bytearray | memoryview,
 ) -> int:
     # Zero-copy: ReadFileInto writes directly into the caller buffer.
@@ -208,18 +217,19 @@ async def readinto(
     proactor = loop._proactor
     ov = _overlapped.Overlapped(_NULL)
     ov.ReadFileInto(handle, buffer)
-    return await proactor._register(ov, handle_wrapper,
-                                    lambda trans, key, ov: ov.getresult())
+    return await proactor._register(ov, handle_wrapper, lambda trans, key, ov: ov.getresult())
+
 
 async def write(
-    handle: int, handle_wrapper: _HandleWrapper, data: memoryview,
+    handle: int,
+    handle_wrapper: _HandleWrapper,
+    data: memoryview,
 ) -> int:
     loop = get_running_loop()
     proactor = loop._proactor
     ov = _overlapped.Overlapped(_NULL)
     ov.WriteFile(handle, data)
-    return await proactor._register(ov, handle_wrapper,
-                                    lambda trans, key, ov: ov.getresult())
+    return await proactor._register(ov, handle_wrapper, lambda trans, key, ov: ov.getresult())
 ```
 
 **Why `handle_wrapper` in `_register` but raw `handle` in

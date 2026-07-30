@@ -158,7 +158,7 @@ and survive nesting:
 ```python
 # pySerial
 ser.timeout = 0.5
-data = ser.read(64)   # returns early on timeout
+data = ser.read(64)  # returns early on timeout
 
 # anyserial async
 import anyio
@@ -262,6 +262,7 @@ transition — `pyserial` on the paths you haven't migrated yet,
 ```python
 # Still using pyserial here…
 import serial
+
 legacy = serial.Serial("/dev/ttyUSB0", 9600)
 
 # …and anyserial for the new hot path.

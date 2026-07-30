@@ -26,8 +26,7 @@ stays `"asyncio"`, you just flip the uvloop option:
 import anyio
 
 
-async def main() -> None:
-    ...
+async def main() -> None: ...
 
 
 anyio.run(main, backend="asyncio", backend_options={"use_uvloop": True})

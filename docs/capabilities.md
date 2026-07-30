@@ -15,9 +15,9 @@ for the full rationale.
 ```python
 from anyserial import Capability
 
-Capability.SUPPORTED    # mechanism exists on this platform/backend
+Capability.SUPPORTED  # mechanism exists on this platform/backend
 Capability.UNSUPPORTED  # mechanism does not exist here
-Capability.UNKNOWN      # mechanism reachable but driver/device may reject
+Capability.UNKNOWN  # mechanism reachable but driver/device may reject
 ```
 
 `UNKNOWN` is the important one: it means "the platform has an ioctl

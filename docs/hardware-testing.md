@@ -160,8 +160,7 @@ def device_path() -> str:
     return path
 
 
-async def test_round_trip(device_path: str) -> None:
-    ...
+async def test_round_trip(device_path: str) -> None: ...
 ```
 
 Skip paths are as important as assertions — a hardware test that

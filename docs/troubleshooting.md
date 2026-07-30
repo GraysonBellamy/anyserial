@@ -264,7 +264,7 @@ cancellable. If you're not seeing a timeout trip, the send is
 probably already completing fast — check whether it actually blocks:
 
 ```python
-with anyio.fail_after(0.001):      # absurdly short
+with anyio.fail_after(0.001):  # absurdly short
     await port.send(b"x" * 64)
 # If this doesn't raise, your send wasn't blocking.
 ```
@@ -371,7 +371,7 @@ Win32 code stashed on the exception:
 try:
     port = await open_serial_port(r"\\.\COM3", SerialConfig(baudrate=500_000))
 except UnsupportedConfigurationError as exc:
-    print(exc.winerror)   # 87 — driver rejected the rate
+    print(exc.winerror)  # 87 — driver rejected the rate
 ```
 
 **Fix:** pick a standard rate (9600, 19200, 115200, 230400, 460800,
