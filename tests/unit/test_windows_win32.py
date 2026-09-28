@@ -101,12 +101,27 @@ class TestNormalisePath:
         ("given", "expected"),
         [
             ("COM1", "\\\\.\\COM1"),
+            ("COM8", "\\\\.\\COM8"),
+            ("com8", "\\\\.\\com8"),
             ("COM10", "\\\\.\\COM10"),
             ("COM255", "\\\\.\\COM255"),
-            # Already prefixed → returned unchanged.
-            ("\\\\.\\COM1", "\\\\.\\COM1"),
-            ("\\\\.\\COM42", "\\\\.\\COM42"),
         ],
     )
     def test_prefix_added_when_missing(self, given: str, expected: str) -> None:
         assert normalise_com_path(given) == expected
+
+    @pytest.mark.parametrize(
+        "given",
+        [
+            "\\\\.\\COM1",
+            "\\\\.\\COM8",
+            "\\\\.\\COM42",
+            "\\\\?\\COM8",
+            "\\\\?\\com10",
+            # SetupAPI device-interface path, as discovery reports it for a
+            # port whose friendly name carries no "(COMn)".
+            "\\\\?\\usb#vid_0403&pid_6001#a12345#{86e0d1e0-8089-11d0-9ce4-08003e301f73}",
+        ],
+    )
+    def test_prefixed_paths_are_unchanged(self, given: str) -> None:
+        assert normalise_com_path(given) == given

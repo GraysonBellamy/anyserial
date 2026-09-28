@@ -497,11 +497,12 @@ def normalise_com_path(path: str) -> str:
     r"""Return the ``\\.\COMn`` form expected by ``CreateFileW``.
 
     Required for COM10 and above (the legacy DOS ``COMn`` namespace stops
-    at COM9); harmless for COM1-COM9. Paths that already start with the
-    DOS-device prefix are returned unchanged so callers can pass either
-    style.
+    at COM9); harmless for COM1-COM9. Paths that already carry a device
+    prefix, ``\\.\`` or ``\\?\``, are returned unchanged: both name the
+    same Win32 device namespace, and ``\\?\`` is also the form SetupAPI
+    reports for device-interface paths.
     """
-    if path.startswith("\\\\.\\"):
+    if path.startswith(("\\\\.\\", "\\\\?\\")):
         return path
     return "\\\\.\\" + path
 

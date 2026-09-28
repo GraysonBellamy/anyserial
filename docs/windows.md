@@ -57,7 +57,7 @@ from anyserial import SerialConfig, open_serial_port
 
 async def main() -> None:
     async with await open_serial_port(
-        r"\\.\COM3",
+        "COM3",
         SerialConfig(baudrate=115_200),
     ) as port:
         await port.send(b"AT\r\n")
@@ -68,12 +68,10 @@ async def main() -> None:
 anyio.run(main)
 ```
 
-The port path is `COM<n>` for `n < 10` and `\\.\COM<n>` for `n >= 10`
-(the `\\.\` prefix is a Win32 namespace quirk — `COM10` without it
-silently opens a file called `COM10` in the current directory, which
-is exactly the bug you didn't want at 3 am). Either form works for
-`COM1`–`COM9`; use `\\.\COM1` unconditionally and you never have to
-remember the rule.
+Pass the port name the way Windows shows it (`"COM3"`, `"COM12"`).
+`anyserial` adds the `\\.\` device prefix that `CreateFileW` needs for
+`COM10` and above, so `COM12`, `com12`, `\\.\COM12` and `\\?\COM12`
+all open the same port. See [Device-path conventions](#device-path-conventions).
 
 ## What works
 
@@ -234,13 +232,21 @@ See [Port discovery](discovery.md) for the full cross-platform API.
 
 ## Device-path conventions
 
-| Port range | Path form |
+| You pass | `CreateFileW` opens |
 |---|---|
-| `COM1`–`COM9` | Either `"COM3"` or `r"\\.\COM3"` — both work. |
-| `COM10`+ | **Must** use `r"\\.\COM10"` — the bare `"COM10"` form opens a file in the current directory. |
+| `"COM3"`, `"COM10"`, `"com10"` | `\\.\COM3`, `\\.\COM10`, `\\.\com10` — the `\\.\` prefix is added |
+| `r"\\.\COM10"` | unchanged |
+| `r"\\?\COM10"` | unchanged |
+| `r"\\?\usb#vid_0403&pid_6001#…#{86e0d1e0-…}"` | unchanged — the device-interface path discovery reports for a port with no `COMn` name |
 
-The backend doesn't normalize these for you at open time. Use the
-`\\.\` prefix unconditionally and the question goes away.
+Win32 needs the `\\.\` prefix for `COM10` and above (the legacy DOS
+names stop at `COM9`), so `open_serial_port` adds it whenever the path
+has no device prefix. Device names are case-insensitive.
+
+`SerialPort.path` returns the string you passed, not the prefixed form.
+To check whether two names refer to the same port — `COM8`, `com8`,
+`\\.\COM8` and `\\?\COM8` all do — compare
+[`canonical_port_name`](discovery.md#port-names) results.
 
 ## Cancellation
 
@@ -254,7 +260,7 @@ no post-cancel use-after-free.
 import anyio
 from anyserial import open_serial_port
 
-async with await open_serial_port(r"\\.\COM3") as port:
+async with await open_serial_port("COM3") as port:
     with anyio.move_on_after(0.1):
         data = await port.receive(1024)  # cancels cleanly after 100 ms
 ```

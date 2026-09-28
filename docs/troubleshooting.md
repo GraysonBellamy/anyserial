@@ -335,16 +335,19 @@ Two common causes:
    the VCP driver from the chipset vendor (FTDI / Prolific /
    Silicon Labs / WCH).
 
-2. **COM port number >= 10 without the `\\.\` prefix.** `"COM10"`
-   without the Win32 namespace prefix silently opens a file in the
-   current directory. Always use the prefix:
+2. **The port has a different number.** Windows renumbers adapters
+   when they move to another USB socket. List what is present and
+   open the name it reports:
 
    ```python
-   await open_serial_port(r"\\.\COM10")  # not "COM10"
+   from anyserial import list_serial_ports
+
+   for info in await list_serial_ports():
+       print(info.device, info.description)
    ```
 
-   `COM1`–`COM9` work either way, but the prefix is safe on all
-   numbers.
+   The `\\.\` prefix is optional: `anyserial` adds it, so `"COM10"`
+   and `r"\\.\COM10"` open the same port.
 
 ### Bytes arrive in 16 ms chunks (Windows / FTDI)
 
