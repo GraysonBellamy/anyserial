@@ -136,15 +136,21 @@ async def wait_comm_event(handle: int) -> int:
     The sequence:
 
     1. ``CreateEventW`` — manual-reset event, initially non-signalled.
-    2. Build a ctypes ``OVERLAPPED`` with ``hEvent`` = that event handle.
+    2. Build a ctypes ``OVERLAPPED`` whose ``hEvent`` is that event with
+       the low-order bit set, so the kernel signals the event but queues
+       no packet to the proactor's completion port, which has no entry
+       for this ``OVERLAPPED``.
     3. ``WaitCommEvent(handle, &mask, &ov)`` — issues the overlapped op.
     4. ``proactor.wait_for_handle(event_handle)`` — parks until the kernel
        signals the event on completion.
     5. Read ``mask.value``, close the event handle.
 
-    Cancellation: if the awaiting task is cancelled, ``wait_for_handle``'s
-    future is cancelled, and the proactor cleans up. We close the event
-    handle in a ``finally`` block so it is never leaked.
+    Cancellation: the proactor owns only the wait on the event, not the
+    ``WaitCommEvent`` itself, so this function cancels it with
+    ``CancelIoEx`` and waits (up to ``_CANCEL_WAIT_MS``) for the kernel to
+    finish with ``ov`` and ``mask`` before they are released. If the
+    kernel does not finish in time they are kept alive in
+    ``_abandoned_waits`` instead of being freed under it.
     """
     import ctypes  # noqa: PLC0415
 
@@ -156,11 +162,13 @@ async def wait_comm_event(handle: int) -> int:
 
     # Manual-reset event, initially non-signalled.
     event_handle = kernel32.CreateEventW(None, 1, 0, None)
+    if not event_handle:
+        raise ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
+    ov = OVERLAPPED()
+    ov.hEvent = event_handle | 1
+    mask = ctypes.c_uint32(0)
+    released = True
     try:
-        ov = OVERLAPPED()
-        ov.hEvent = event_handle
-        mask = ctypes.c_uint32(0)
-
         result = kernel32.WaitCommEvent(handle, ctypes.byref(mask), ctypes.byref(ov))
         if not result:
             err = ctypes.get_last_error()  # type: ignore[attr-defined]
@@ -168,14 +176,34 @@ async def wait_comm_event(handle: int) -> int:
                 raise ctypes.WinError(err)  # type: ignore[attr-defined]
 
             # Park until the kernel signals the event handle.
-            await proactor.wait_for_handle(event_handle)
+            try:
+                await proactor.wait_for_handle(event_handle)
+            except BaseException:
+                # Cancelled (or failed) while the kernel still owns ``ov``
+                # and ``mask``: cancel the operation and wait for it to end.
+                kernel32.CancelIoEx(handle, ctypes.byref(ov))
+                released = (
+                    kernel32.WaitForSingleObject(event_handle, _CANCEL_WAIT_MS) == w.WAIT_OBJECT_0
+                )
+                raise
     finally:
-        # Always close the event handle — CloseHandle is idempotent-safe
-        # and the handle must not leak even on cancellation.
-        with contextlib.suppress(OSError):
-            kernel32.CloseHandle(event_handle)
+        if released:
+            with contextlib.suppress(OSError):
+                kernel32.CloseHandle(event_handle)
+        else:
+            _abandoned_waits.append((ov, mask, event_handle))
 
     return int(mask.value)
+
+
+# How long a cancelled wait_comm_event blocks for the kernel to finish the
+# cancelled WaitCommEvent. Serial drivers complete it immediately.
+_CANCEL_WAIT_MS = 1000
+
+# Buffers and event handles of cancelled WaitCommEvent calls the kernel had
+# not finished within _CANCEL_WAIT_MS. Kept for the life of the process so
+# the kernel never writes into freed memory.
+_abandoned_waits: list[tuple[object, object, int]] = []
 
 
 __all__ = ["HandleWrapper", "readinto", "register", "wait_comm_event", "write"]

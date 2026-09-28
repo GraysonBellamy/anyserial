@@ -14,8 +14,10 @@ modem-line change notification, §6.4) and ``SetCommMask`` during
 EV_BREAK`` events.
 
 Cancellation contract: see ``docs/design-windows-backend.md`` §5. We never
-call ``CancelIoEx`` ourselves — both runtimes do it, and double-cancellation
-races are the one footgun this design exists to avoid.
+call ``CancelIoEx`` on an operation a runtime owns — both runtimes do it,
+and double-cancellation races are the one footgun this design exists to
+avoid. The one operation neither runtime owns, the asyncio path's
+``WaitCommEvent``, is cancelled by :mod:`._asyncio_io` itself.
 """
 
 from __future__ import annotations
@@ -391,8 +393,9 @@ class WindowsBackend:
 
         Issues ``WaitCommEvent`` via the runtime's overlapped-I/O machinery
         and returns a :class:`CommEvent` describing which lines changed.
-        Cancellation is automatic — both runtimes call ``CancelIoEx`` and
-        await real completion before raising.
+        Cancellation is automatic: the operation is cancelled with
+        ``CancelIoEx`` (by Trio, or by :mod:`._asyncio_io` on asyncio) and
+        its completion awaited before the exception propagates.
 
         Shutdown: :meth:`aclose` calls ``SetCommMask(handle, 0)`` which
         wakes any pending ``WaitCommEvent`` with an empty mask (or

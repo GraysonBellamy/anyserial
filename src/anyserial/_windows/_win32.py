@@ -142,6 +142,9 @@ ERROR_DEVICE_REMOVED: int = 1617
 # ``OSError`` carrying this code (design-windows-backend.md §6.3).
 ERROR_TIMEOUT: int = 1460
 
+# WaitForSingleObject result for a signalled object.
+WAIT_OBJECT_0: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Structures
@@ -250,6 +253,7 @@ class Kernel32Bindings:
     """
 
     __slots__ = (
+        "CancelIoEx",
         "ClearCommBreak",
         "ClearCommError",
         "CloseHandle",
@@ -267,10 +271,12 @@ class Kernel32Bindings:
         "SetCommTimeouts",
         "SetupComm",
         "WaitCommEvent",
+        "WaitForSingleObject",
     )
 
     # Type stubs so static checkers see the attribute names that
     # ``_bind_kernel32`` populates at runtime.
+    CancelIoEx: Any
     ClearCommBreak: Any
     ClearCommError: Any
     CloseHandle: Any
@@ -288,6 +294,7 @@ class Kernel32Bindings:
     SetCommTimeouts: Any
     SetupComm: Any
     WaitCommEvent: Any
+    WaitForSingleObject: Any
 
 
 _kernel32_cache: Kernel32Bindings | None = None
@@ -463,6 +470,21 @@ def _bind_kernel32() -> Kernel32Bindings:  # noqa: PLR0915 — one binding per W
     reset_event.errcheck = _check_bool
     bindings.ResetEvent = reset_event
 
+    # CancelIoEx — cancels one overlapped operation the caller owns (the
+    # asyncio WaitCommEvent path). FALSE + ERROR_NOT_FOUND means it already
+    # completed, which callers treat as done, so no errcheck.
+    cancel_io = kernel32.CancelIoEx
+    cancel_io.argtypes = [c_void_p, POINTER(OVERLAPPED)]
+    cancel_io.restype = c_uint32
+    bindings.CancelIoEx = cancel_io
+
+    # WaitForSingleObject — returns WAIT_OBJECT_0, WAIT_TIMEOUT or
+    # WAIT_FAILED; callers compare against WAIT_OBJECT_0.
+    wait_single = kernel32.WaitForSingleObject
+    wait_single.argtypes = [c_void_p, c_uint32]
+    wait_single.restype = c_uint32
+    bindings.WaitForSingleObject = wait_single
+
     return bindings
 
 
@@ -546,6 +568,7 @@ __all__ = [
     "SETXON",
     "SPACEPARITY",
     "TWOSTOPBITS",
+    "WAIT_OBJECT_0",
     "XOFF_CHAR",
     "XON_CHAR",
     "Kernel32Bindings",

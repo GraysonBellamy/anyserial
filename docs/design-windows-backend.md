@@ -303,9 +303,16 @@ on cancel:
     task sees Cancelled
 ```
 
-We never call `CancelIoEx` ourselves from user-facing code. Both
+We never call `CancelIoEx` on an operation a runtime owns. Both
 runtimes handle it, and calling it ourselves risks double-cancellation
 races.
+
+The exception is the asyncio `WaitCommEvent` (§6.4): the proactor waits
+on its event handle but does not own the operation, so nothing would
+cancel it. `_asyncio_io.wait_comm_event` calls `CancelIoEx` on its own
+`OVERLAPPED` and blocks (up to 1 s) on the event until the kernel has
+finished, then releases the buffers — or keeps them alive for the rest
+of the process if the kernel has not finished by then.
 
 `aclose()` sequence (shielded, idempotent):
 
@@ -481,6 +488,10 @@ notifications:
   completion port still receives a packet.
 - **asyncio:** `_overlapped.Overlapped` has no `WaitCommEvent` method,
   so we drive it with a manual-reset event + `proactor.wait_for_handle`.
+  The event goes into `hEvent` with its low-order bit set, which stops
+  the kernel from also queueing a completion packet to the proactor's
+  port for an `OVERLAPPED` the proactor does not know. Task cancellation
+  is handled as described in §5.
 - **Shutdown:** `SetCommMask(handle, 0)` (races cleanly; preferred over
   `CancelIoEx` for this op specifically).
 - **Fallback role:** if real driver testing (M10.4) shows that certain
