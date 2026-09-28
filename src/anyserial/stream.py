@@ -106,6 +106,12 @@ def _platform_port_info_resolver() -> Callable[[str], PortInfo | None] | None:
         )
 
         return bsd_resolver
+    if platform == "win32":
+        from anyserial._windows.discovery import (  # noqa: PLC0415 — lazy by platform
+            resolve_port_info as windows_resolver,
+        )
+
+        return windows_resolver
     return None
 
 
@@ -993,8 +999,13 @@ async def open_serial_port(
     # ``select_backend`` return type, so no trailing fallback is needed.
     # OSError translation is the backend's responsibility (Windows raises
     # WinError, which doesn't map cleanly through ``errno_to_exception``).
+    #
+    # Metadata is resolved first, in a worker thread: the Windows lookup
+    # walks SetupAPI, which would stall the event loop, and resolving
+    # before the open means a cancellation during the lookup cannot leave
+    # an opened handle behind.
+    port_info = await anyio.to_thread.run_sync(_resolve_port_info_for_path, path)
     await backend.open(path, cfg)
-    port_info = _resolve_port_info_for_path(path)
     return _AsyncBackendSerialPort(backend, cfg, port_info=port_info)
 
 

@@ -24,8 +24,16 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 
-from anyserial import PortInfo, SerialConfig, SerialPort, SerialStreamAttribute
-from anyserial.stream import _resolve_port_info_for_path
+from anyserial import (
+    PortInfo,
+    SerialConfig,
+    SerialPort,
+    SerialStreamAttribute,
+    open_serial_port,
+)
+from anyserial import stream as _stream
+from anyserial._windows import discovery as _windows_discovery
+from anyserial.stream import _platform_port_info_resolver, _resolve_port_info_for_path
 from anyserial.testing import MockBackend
 
 if sys.platform.startswith("linux"):
@@ -34,7 +42,7 @@ else:
     _linux_discovery = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 pytestmark = pytest.mark.anyio
 
@@ -171,3 +179,114 @@ class TestResolvePortInfoHelper:
 
         monkeypatch.setattr(_linux_discovery, "resolve_port_info", _boom)
         assert _resolve_port_info_for_path("/dev/ttyUSB0") is None
+
+
+_COM8_INFO = PortInfo(
+    device="COM8",
+    name="COM8",
+    description="USB Serial Port (COM8)",
+    hwid="USB VID:PID=0403:6001 SER=BG00VBZS",
+    vid=0x0403,
+    pid=0x6001,
+    serial_number="BG00VBZS",
+    product="USB Serial Port",
+)
+
+
+def _resolve_com8(path: str) -> PortInfo | None:
+    return _COM8_INFO if path == "com8" else None
+
+
+class TestWindowsResolver:
+    def test_win32_dispatches_to_the_setupapi_resolver(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert _platform_port_info_resolver() is _windows_discovery.resolve_port_info
+
+    def test_win32_resolver_result_is_returned(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(_windows_discovery, "resolve_port_info", _resolve_com8)
+        assert _resolve_port_info_for_path("com8") == _COM8_INFO
+
+    def test_win32_resolver_oserror_maps_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _boom(path: str) -> PortInfo | None:
+            raise OSError("simulated SetupAPI failure")
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(_windows_discovery, "resolve_port_info", _boom)
+        assert _resolve_port_info_for_path("COM8") is None
+
+
+class _RecordingAsyncBackend:
+    """Just enough of :class:`AsyncSerialBackend` for ``open_serial_port``."""
+
+    def __init__(self) -> None:
+        self._path = ""
+        self._open = False
+
+    @property
+    def path(self) -> str:
+        return self._path
+
+    @property
+    def is_open(self) -> bool:
+        return self._open
+
+    async def open(self, path: str, config: SerialConfig) -> None:
+        self._path = path
+        self._open = True
+
+    async def aclose(self) -> None:
+        self._open = False
+
+
+def _install(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: _RecordingAsyncBackend,
+    resolver: Callable[[str], PortInfo | None],
+) -> None:
+    """Make ``open_serial_port`` use ``backend`` and resolve metadata via ``resolver``."""
+
+    def select_backend(path: str, config: SerialConfig) -> _RecordingAsyncBackend:
+        return backend
+
+    def platform_resolver() -> Callable[[str], PortInfo | None]:
+        return resolver
+
+    monkeypatch.setattr(_stream, "select_backend", select_backend)
+    monkeypatch.setattr(_stream, "_platform_port_info_resolver", platform_resolver)
+
+
+class TestOpenSerialPortWithAsyncBackend:
+    async def test_port_info_is_resolved_before_the_open(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        backend = _RecordingAsyncBackend()
+        open_when_resolved: list[bool] = []
+
+        def resolver(path: str) -> PortInfo | None:
+            open_when_resolved.append(backend.is_open)
+            return _resolve_com8(path)
+
+        _install(monkeypatch, backend, resolver)
+        port = await open_serial_port("com8")
+        try:
+            assert port.port_info == _COM8_INFO
+            assert port.extra(SerialStreamAttribute.port_info) == _COM8_INFO
+            assert open_when_resolved == [False]
+            assert backend.is_open
+        finally:
+            await port.aclose()
+
+    async def test_unresolved_port_still_opens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        backend = _RecordingAsyncBackend()
+        _install(monkeypatch, backend, _resolve_com8)
+        port = await open_serial_port("COM99")
+        try:
+            assert port.port_info is None
+            assert backend.is_open
+        finally:
+            await port.aclose()

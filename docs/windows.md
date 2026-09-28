@@ -94,6 +94,7 @@ all open the same port. See [Device-path conventions](#device-path-conventions).
 | Input / output waiting | ✅     | `ClearCommError` → `COMSTAT.cbInQue` / `cbOutQue`. |
 | `drain()` / exact drain | ✅    | Write completion + `FlushFileBuffers`. |
 | Native discovery       | ✅     | SetupAPI via `GUID_DEVINTERFACE_COMPORT`; USB VID/PID/serial extracted from hardware IDs. |
+| `port.port_info`       | ✅     | Resolved through the same discovery walk, in a worker thread, when the port opens. |
 | Runtime reconfigure    | ✅     | `GetCommState` → overlay → `SetCommState` round-trip. |
 | Modem-line change events | ✅   | `WaitCommEvent(EV_CTS | EV_DSR | EV_RING | EV_RLSD | EV_ERR | EV_BREAK)`. |
 | Low-latency mode       | ❌     | No Windows equivalent of `ASYNC_LOW_LATENCY`. FTDI's latency timer is a driver-GUI setting. Routed through `UnsupportedPolicy`. |
