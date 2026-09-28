@@ -137,6 +137,11 @@ ERROR_IO_PENDING: int = 997
 ERROR_OPERATION_ABORTED: int = 995
 ERROR_DEVICE_REMOVED: int = 1617
 
+# ``RtlNtStatusToDosError(STATUS_TIMEOUT)``. Trio reports an overlapped read
+# that the "wait-for-any" COMMTIMEOUTS policy timed out with no data as an
+# ``OSError`` carrying this code (design-windows-backend.md §6.3).
+ERROR_TIMEOUT: int = 1460
+
 
 # ---------------------------------------------------------------------------
 # Structures
@@ -501,6 +506,7 @@ __all__ = [
     "ERROR_NOT_READY",
     "ERROR_OPERATION_ABORTED",
     "ERROR_SHARING_VIOLATION",
+    "ERROR_TIMEOUT",
     "EVENPARITY",
     "EV_ALL_MODEM",
     "EV_BREAK",

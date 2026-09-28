@@ -173,7 +173,12 @@ import trio
 async def readinto(handle: int, buffer: bytearray | memoryview) -> int:
     # register_with_iocp called once in open(); idempotent-check not needed
     # because we track it on WindowsBackend.
-    return await trio.lowlevel.readinto_overlapped(handle, buffer)
+    try:
+        return await trio.lowlevel.readinto_overlapped(handle, buffer)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == ERROR_TIMEOUT:
+            return 0  # idle read timed out under §6.3; the caller reissues
+        raise
 
 
 async def write(handle: int, data: memoryview) -> int:
@@ -184,6 +189,12 @@ Trio owns the OVERLAPPED lifecycle, handles `CancelIoEx`, and waits for
 actual completion before returning on cancellation. Buffer is caller-
 owned; we must keep it alive across the `await`, which the calling
 `SerialPort` hot path already guarantees.
+
+Trio's `wait_overlapped` raises for any non-zero completion status. An
+idle read under the §6.3 policy completes with `STATUS_TIMEOUT`, a
+success-class NTSTATUS that Trio converts to `ERROR_TIMEOUT` (1460), so
+`readinto` maps it back to the zero-byte completion asyncio's proactor
+reports for the same status.
 
 Minimum version: **`trio >= 0.22`**.
 
@@ -464,6 +475,10 @@ notifications:
   deliberately excluded — we do not use comm events for data-path
   readiness.
 - **Trio:** raw `wait_overlapped` with a ctypes OVERLAPPED + DWORD mask.
+  Trio receives the OVERLAPPED's address (it keys waiters by address, and
+  ctypes structures are unhashable) and is awaited even when
+  `WaitCommEvent` completes synchronously, because the handle's
+  completion port still receives a packet.
 - **asyncio:** `_overlapped.Overlapped` has no `WaitCommEvent` method,
   so we drive it with a manual-reset event + `proactor.wait_for_handle`.
 - **Shutdown:** `SetCommMask(handle, 0)` (races cleanly; preferred over

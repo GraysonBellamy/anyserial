@@ -7,7 +7,13 @@ lifecycle, ``CancelIoEx``, and the post-cancellation completion wait.
 ``wait_comm_event`` (§6.4) uses ``trio.lowlevel.wait_overlapped``
 with a ctypes ``OVERLAPPED`` + ``DWORD`` mask because Trio has no
 dedicated ``WaitCommEvent`` helper. The ctypes structures are caller-owned
-and kept alive across the ``await``.
+and kept alive across the ``await``; Trio receives the ``OVERLAPPED`` by
+address.
+
+Trio treats every non-zero completion status as a failure, including the
+success-class ``STATUS_TIMEOUT`` that ends an idle read under the
+"wait-for-any" ``COMMTIMEOUTS`` policy (§6.3). :func:`readinto` maps that
+status back to the empty completion the backend's read loop expects.
 
 Imports are lazy at the function level so this module is harmless to
 load on POSIX (where Trio is an optional dep) and so the asyncio path's
@@ -18,10 +24,10 @@ Minimum Trio version: 0.22.
 
 from __future__ import annotations
 
-from ctypes import byref, c_uint32
+from ctypes import addressof, byref, c_uint32
 from typing import Any
 
-from anyserial._windows._win32 import OVERLAPPED
+from anyserial._windows._win32 import ERROR_TIMEOUT, OVERLAPPED
 
 
 async def register(handle: int) -> None:
@@ -35,15 +41,24 @@ async def register(handle: int) -> None:
 async def readinto(handle: int, buffer: bytearray | memoryview) -> int:
     """Zero-copy overlapped read into the caller's buffer.
 
-    Returns the number of bytes written into ``buffer``. Cancellation is
-    automatic: if the awaiting task is cancelled, Trio issues
+    Returns the number of bytes written into ``buffer``; ``0`` when the
+    read timed out with no data, which the caller reissues. Cancellation
+    is automatic: if the awaiting task is cancelled, Trio issues
     ``CancelIoEx`` and waits for the actual completion before raising,
     so the buffer is safe to release.
     """
     import trio  # noqa: PLC0415 — lazy by runtime
 
     readinto: Any = trio.lowlevel.readinto_overlapped  # type: ignore[attr-defined]
-    return int(await readinto(handle, buffer))  # pyright: ignore[reportUnknownArgumentType]
+    try:
+        return int(await readinto(handle, buffer))  # pyright: ignore[reportUnknownArgumentType]
+    except OSError as exc:
+        # Trio raises ``STATUS_TIMEOUT`` as ERROR_TIMEOUT. Under the
+        # wait-for-any policy a read only times out when no byte arrived,
+        # so the completion transferred nothing.
+        if getattr(exc, "winerror", None) == ERROR_TIMEOUT:
+            return 0
+        raise
 
 
 async def write(handle: int, data: bytes | memoryview) -> int:
@@ -66,8 +81,10 @@ async def wait_comm_event(handle: int) -> int:
 
     Uses ``trio.lowlevel.wait_overlapped`` because Trio has no dedicated
     ``WaitCommEvent`` helper. We allocate a ctypes ``OVERLAPPED`` and
-    ``DWORD`` mask on the stack and pass them to the kernel; Trio drives
-    the completion wait via its IOCP integration.
+    ``DWORD`` mask, pass them to the kernel, and hand Trio the
+    ``OVERLAPPED``'s address: Trio keys its waiters by that address (a
+    ctypes structure is unhashable) and drives the completion wait via its
+    IOCP integration.
     """
     import trio  # noqa: PLC0415 — lazy by runtime
 
@@ -87,9 +104,12 @@ async def wait_comm_event(handle: int) -> int:
         if err != w.ERROR_IO_PENDING:
             raise ctypes.WinError(err)  # type: ignore[attr-defined]
 
-        # Pend on the IOCP completion packet.
-        wait_overlapped: Any = trio.lowlevel.wait_overlapped  # type: ignore[attr-defined]
-        await wait_overlapped(handle, ov)
+    # The handle is associated with Trio's completion port without
+    # FILE_SKIP_COMPLETION_PORT_ON_SUCCESS, so the kernel queues a
+    # completion packet even when WaitCommEvent finished synchronously.
+    # Wait for it in both cases; ``ov`` and ``mask`` stay alive until then.
+    wait_overlapped: Any = trio.lowlevel.wait_overlapped  # type: ignore[attr-defined]
+    await wait_overlapped(handle, addressof(ov))
 
     return int(mask.value)
 
