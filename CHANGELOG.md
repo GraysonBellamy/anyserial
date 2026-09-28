@@ -5,7 +5,78 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0]
+
+### Added
+
+- `canonical_port_name(path, *, platform=None)` returns one name for
+  every spelling of a port, for use as a "same port?" key. On Windows it
+  strips the `\\.\` / `\\?\` prefix and upper-cases (`com8`, `\\.\COM8`
+  and `\\?\COM8` all give `COM8`, the `PortInfo.device` discovery
+  reports); on POSIX it resolves symlinks when the path exists, so a
+  `/dev/serial/by-id/...` link and its `/dev/ttyUSB0` target agree.
+  Re-exported from `anyserial`.
+- `anyserial.testing.faults_of(port)` returns the live `FaultPlan` of a
+  port backed by `MockBackend`, such as either end of
+  `serial_port_pair()`, so tests can inject faults without reaching into
+  the private `port._backend`. Raises `TypeError` for other ports.
+- Windows: `SerialPort.port_info` is populated. `open_serial_port`
+  resolves the port through the SetupAPI discovery walk, in a worker
+  thread before opening the handle; it was always `None` on Windows.
+
+### Changed
+
+- `find_serial_port(device=...)` matches any name of the port by
+  comparing `canonical_port_name` results, instead of comparing strings
+  verbatim: `device="com8"` finds `COM8` on Windows and a by-id symlink
+  finds its target on POSIX. Every verbatim match still matches.
+- `SerialPort.path` is documented as the path exactly as passed to
+  `open_serial_port`; it is not normalised.
+
+### Fixed
+
+- Windows, Trio: `receive()` and `receive_into()` on an idle port no
+  longer fail with `SerialError` ("[WinError 1460] This operation
+  returned because the timeout period expired") about 1 ms after the
+  call. Trio raises the `STATUS_TIMEOUT` that ends an empty read under
+  the wait-for-any `COMMTIMEOUTS` policy as an error; the Trio read path
+  now treats it as the empty completion asyncio reports, and the read is
+  reissued.
+- Windows, Trio: `WindowsBackend.wait_modem_event()` passes the
+  `OVERLAPPED` to Trio by address. It previously passed the ctypes
+  structure itself, which Trio cannot use as a dict key, so every pending
+  wait failed with `TypeError` and left `WaitCommEvent` pending on
+  buffers that were then released. A `WaitCommEvent` that completes
+  synchronously now also waits for its completion packet.
+- Windows, asyncio: cancelling `WindowsBackend.wait_modem_event()` no
+  longer corrupts memory. The pending `WaitCommEvent` was left running
+  while its buffers and event handle were released, so the kernel wrote
+  into freed memory when the event later fired or `aclose()` woke it,
+  and the process crashed with an access violation. The wait is now
+  cancelled with `CancelIoEx` and its completion awaited before the
+  buffers are released. Its `OVERLAPPED` also no longer queues a
+  completion packet to the proactor's port, which has no entry for it.
+- Windows: `open_serial_port` leaves a path that already starts with
+  `\\?\` unchanged, as it does for `\\.\`. It previously prepended
+  `\\.\`, so `\\?\COM8`, and the `\\?\…` device-interface paths
+  discovery reports for ports without a `COMn` name, could not be opened.
+- Windows discovery reports `vid`, `pid` and `serial_number` for FTDI
+  adapters on FTDI's VCP driver, and `serial_number` for USB devices
+  that have one. They are read from the device instance ID
+  (`FTDIBUS\VID_0403+PID_6001+<serial>A\0000`,
+  `USB\VID_xxxx&PID_xxxx\<serial>`); the hardware ID used before names
+  no serial number and, for FTDI ports, is not in the `USB\VID_…` form
+  that was parsed. FTDI's appended port letter is dropped so the serial
+  number matches Linux and macOS. The IDs Windows generates for devices
+  without a serial number are not reported as serial numbers.
+
+### Documentation
+
+- Windows: corrected the device-path rules. `open_serial_port` adds the
+  `\\.\` prefix itself, so `"COM10"` opens the port; the docs said it
+  opened a file in the current directory.
+
+## [0.1.2]
 
 ### Fixed
 
@@ -154,4 +225,6 @@ Initial release.
   and per-platform pages (Linux tuning, macOS, BSD, Windows).
 - MIT license.
 
+[0.2.0]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.2.0
+[0.1.2]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.1.2
 [0.1.1]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.1.1
