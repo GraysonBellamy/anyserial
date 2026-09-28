@@ -34,7 +34,7 @@ if none are set. Start by picking the adapter you have:
 
 | Env var | Used by | What it points at |
 |---|---|---|
-| `ANYSERIAL_TEST_PORT` | `tests/hardware/test_discovery_ftdi.py`, `test_ftdi_low_latency.py` | The `/dev/ttyUSB*` or `/dev/cu.*` path of a connected adapter |
+| `ANYSERIAL_TEST_PORT` | `tests/hardware/test_discovery_ftdi.py`, `test_ftdi_low_latency.py`, `test_windows_serial_port.py` | The `/dev/ttyUSB*` or `/dev/cu.*` path of a connected adapter, or its `COMn` name on Windows |
 | `ANYSERIAL_TEST_VID` | `test_discovery_ftdi.py` | VID override when filtering by device (defaults to FTDI `0x0403`) |
 | `ANYSERIAL_TEST_PID` | `test_discovery_ftdi.py` | PID override (defaults to `0x6001`) |
 | `ANYSERIAL_RS485_PORT` | `test_rs485_adapter.py` | Path of an adapter whose driver implements `TIOCSRS485` |
@@ -97,9 +97,16 @@ and B↔B across a short twisted pair is the canonical setup.
   back the exact state), and restores the pre-touch state on
   close. Adapters whose driver returns `ENOTTY` for
   `TIOCSRS485` skip with a descriptive message.
+- **`test_windows_serial_port.py`** (Windows) — `port.port_info` is
+  the SetupAPI entry `find_serial_port(device=...)` reports for the
+  port; under both asyncio and Trio, an idle `receive()` /
+  `receive_into()` waits until cancelled instead of failing on the
+  driver's 1 ms empty completions, and a pending modem-event wait is
+  cancellable and is released by `aclose()`. Sends nothing; no
+  loopback needed.
 
-All three pass against a genuine FTDI FT232R on Linux 6.x; behaviour
-on clones varies by driver.
+The three Linux tests pass against a genuine FTDI FT232R on Linux 6.x;
+behaviour on clones varies by driver.
 
 ## Running inside CI
 
@@ -120,6 +127,20 @@ ANYSERIAL_TEST_PORT=/dev/ttyUSB0 uv run pytest -m hardware tests/hardware/
 ```
 
 Expected wall time on an FTDI adapter: <2 s.
+
+## Windows
+
+Set `ANYSERIAL_TEST_PORT` to the adapter's COM name in PowerShell:
+
+```powershell
+$env:ANYSERIAL_TEST_PORT = "COM8"
+uv run pytest -m hardware tests/hardware/
+```
+
+The Linux-only tests skip; `test_windows_serial_port.py` runs once per
+AnyIO backend. Opening the port applies the default `SerialConfig` and
+asserts DTR / RTS, so point it at an adapter whose attached device
+tolerates that.
 
 ## macOS and BSD
 
