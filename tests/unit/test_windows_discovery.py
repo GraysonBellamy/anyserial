@@ -2,10 +2,10 @@
 """Unit tests for the Windows SetupAPI discovery helpers.
 
 Tests the pure-Python string-parsing functions that extract USB metadata
-from Windows hardware ID strings and friendly names, and the path
-matching in ``resolve_port_info`` with the enumerators replaced. These run
-on any platform — the actual SetupAPI calls are exercised only in Windows
-CI integration tests.
+from Windows device instance IDs, hardware IDs and friendly names, and the
+path matching in ``resolve_port_info`` with the enumerators replaced. These
+run on any platform — the actual SetupAPI calls are exercised only in
+Windows CI integration tests.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from anyserial._windows import discovery as windows_discovery
 from anyserial._windows.discovery import (
     _extract_com_name,
     _format_hwid,
+    _ftdi_serial_number,
+    _parse_device_ids,
     _parse_hardware_id,
     _strip_com_suffix,
     resolve_port_info,
@@ -23,48 +25,127 @@ from anyserial._windows.discovery import (
 from anyserial.discovery import PortInfo
 
 
+class TestParseDeviceIds:
+    """``(vid, pid, serial)`` from a port's device instance ID and hardware ID.
+
+    The first five cases are the IDs Windows reports for real adapters.
+    """
+
+    @pytest.mark.parametrize(
+        ("instance_id", "hardware_id", "expected"),
+        [
+            pytest.param(
+                "FTDIBUS\\VID_0403+PID_6001+BG00VBZSA\\0000",
+                "FTDIBUS\\COMPORT&VID_0403&PID_6001",
+                (0x0403, 0x6001, "BG00VBZS"),
+                id="ft232r",
+            ),
+            pytest.param(
+                "FTDIBUS\\VID_0856+PID_AC33+BBZ7WWS2A\\0000",
+                "FTDIBUS\\COMPORT&VID_0856&PID_AC33",
+                (0x0856, 0xAC33, "BBZ7WWS2"),
+                id="ftdi-vcp-other-vendor",
+            ),
+            pytest.param(
+                "USB\\VID_067B&PID_2303\\6&406CFD0&0&3",
+                "USB\\VID_067B&PID_2303&REV_0400",
+                (0x067B, 0x2303, None),
+                id="prolific-no-serial",
+            ),
+            pytest.param(
+                "PCI\\VEN_8086&DEV_7AEB&SUBSYS_334B17AA&REV_11\\3&11583659&0&B3",
+                "PCI\\VEN_8086&DEV_7AEB&SUBSYS_334B17AA&REV_11",
+                (None, None, None),
+                id="pci-uart",
+            ),
+            pytest.param(
+                "ACPI\\PNP0501\\0",
+                "ACPI\\PNP0501",
+                (None, None, None),
+                id="acpi-uart",
+            ),
+            pytest.param(
+                "USB\\VID_10C4&PID_EA60\\0001",
+                "USB\\VID_10C4&PID_EA60&REV_0100",
+                (0x10C4, 0xEA60, "0001"),
+                id="usb-serial-number",
+            ),
+            pytest.param(
+                "USB\\VID_1A86&PID_7523\\5&3753427A&0&4",
+                "USB\\VID_1A86&PID_7523&REV_0254",
+                (0x1A86, 0x7523, None),
+                id="ch340-generated-id",
+            ),
+            pytest.param(
+                "USB\\VID_2341&PID_8036&MI_00\\7&2A4F6E1&0&0000",
+                "USB\\VID_2341&PID_8036&REV_0100&MI_00",
+                (0x2341, 0x8036, None),
+                id="composite-interface",
+            ),
+            pytest.param(
+                "FTDIBUS\\VID_0403+PID_6010+FT5ABCDEB\\0000",
+                "FTDIBUS\\COMPORT&VID_0403&PID_6010",
+                (0x0403, 0x6010, "FT5ABCDE"),
+                id="ft2232h-second-port",
+            ),
+            pytest.param(
+                "usb\\vid_0403&pid_6001\\a12345",
+                None,
+                (0x0403, 0x6001, "a12345"),
+                id="lower-case",
+            ),
+            pytest.param(
+                None,
+                "FTDIBUS\\COMPORT&VID_0403&PID_6001",
+                (0x0403, 0x6001, None),
+                id="hardware-id-fallback",
+            ),
+            pytest.param(None, None, (None, None, None), id="nothing"),
+        ],
+    )
+    def test_ids(
+        self,
+        instance_id: str | None,
+        hardware_id: str | None,
+        expected: tuple[int | None, int | None, str | None],
+    ) -> None:
+        assert _parse_device_ids(instance_id, hardware_id) == expected
+
+
 class TestParseHardwareId:
-    """Parse ``USB\\VID_xxxx&PID_xxxx\\serial`` into (vid, pid, serial)."""
+    """VID / PID named anywhere in a hardware ID."""
 
-    def test_full_usb_with_serial(self) -> None:
-        vid, pid, serial = _parse_hardware_id("USB\\VID_0403&PID_6001\\A12345")
-        assert vid == 0x0403
-        assert pid == 0x6001
-        assert serial == "A12345"
+    def test_usb(self) -> None:
+        assert _parse_hardware_id("USB\\VID_067B&PID_2303&REV_0400") == (0x067B, 0x2303)
 
-    def test_usb_without_serial(self) -> None:
-        vid, pid, serial = _parse_hardware_id("USB\\VID_067B&PID_2303")
-        assert vid == 0x067B
-        assert pid == 0x2303
-        assert serial is None
+    def test_ftdibus(self) -> None:
+        assert _parse_hardware_id("FTDIBUS\\COMPORT&VID_0403&PID_6001") == (0x0403, 0x6001)
 
-    def test_lowercase_hex_parsed(self) -> None:
-        vid, pid, serial = _parse_hardware_id("USB\\VID_0403&PID_6001\\ftdi_serial")
-        assert vid == 0x0403
-        assert pid == 0x6001
-        assert serial == "ftdi_serial"
+    def test_lower_case_hex(self) -> None:
+        assert _parse_hardware_id("USB\\VID_1a86&PID_7523") == (0x1A86, 0x7523)
 
-    def test_non_usb_returns_none_triple(self) -> None:
-        assert _parse_hardware_id("ACPI\\PNP0501\\0") == (None, None, None)
+    @pytest.mark.parametrize("hwid", ["ACPI\\PNP0501", "PCI\\VEN_8086&DEV_1E3D", "", None])
+    def test_no_vid_pid(self, hwid: str | None) -> None:
+        assert _parse_hardware_id(hwid) == (None, None)
 
-    def test_pci_returns_none_triple(self) -> None:
-        assert _parse_hardware_id("PCI\\VEN_8086&DEV_1E3D\\3&11583659&0&B3") == (
-            None,
-            None,
-            None,
-        )
 
-    def test_none_input_returns_none_triple(self) -> None:
-        assert _parse_hardware_id(None) == (None, None, None)
+class TestFtdiSerialNumber:
+    """The FTDI driver's port letter is removed from the chip serial number."""
 
-    def test_empty_string_returns_none_triple(self) -> None:
-        assert _parse_hardware_id("") == (None, None, None)
-
-    def test_ch340_hardware_id(self) -> None:
-        vid, pid, serial = _parse_hardware_id("USB\\VID_1A86&PID_7523\\5&3753427A&0&4")
-        assert vid == 0x1A86
-        assert pid == 0x7523
-        assert serial == "5&3753427A&0&4"
+    @pytest.mark.parametrize(
+        ("segment", "expected"),
+        [
+            ("A103H1FFA", "A103H1FF"),
+            ("FT5ABCDEB", "FT5ABCDE"),
+            ("FT5ABCDED", "FT5ABCDE"),
+            ("12345678", "12345678"),
+            ("5&2D0E5D3B&0&2", None),
+            ("", None),
+            (None, None),
+        ],
+    )
+    def test_segments(self, segment: str | None, expected: str | None) -> None:
+        assert _ftdi_serial_number(segment) == expected
 
 
 class TestExtractComName:

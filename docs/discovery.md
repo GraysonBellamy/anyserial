@@ -194,7 +194,8 @@ optional extra isn't installed.
   NetBSD). USB metadata is **not populated**; use
   `backend="pyserial"` if you need VID/PID.
 - **Windows** — enumerates `GUID_DEVINTERFACE_COMPORT` via SetupAPI,
-  extracts VID/PID/serial_number from the hardware-ID string, and
+  reads VID/PID/serial_number from the device instance ID (including
+  FTDI's `FTDIBUS` IDs), and
   falls back automatically to `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM`
   via `winreg` (device path only) when SetupAPI enumeration fails.
   The `hwid` string is pyserial-compatible. See

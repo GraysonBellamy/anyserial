@@ -527,8 +527,15 @@ Native discovery via SetupAPI with
 3. `SetupDiGetDeviceInterfaceDetailW` for the device path.
 4. `SetupDiGetDeviceRegistryPropertyW` for `FRIENDLYNAME`, `HARDWAREID`,
    `LOCATION_INFORMATION`.
-5. Parse `USB\\VID_xxxx&PID_xxxx\\...` from hardware ID strings for
-   `vid` / `pid` / `serial_number`.
+5. `SetupDiGetDeviceInstanceIdW` for the device instance ID, the only ID
+   that records the serial number. Parse `vid` / `pid` / `serial_number`
+   from `USB\VID_xxxx&PID_xxxx\<serial>` or, for FTDI's VCP driver,
+   `FTDIBUS\VID_xxxx+PID_xxxx+<serial><port letter>\0000` (the port
+   letter is dropped so the serial matches other platforms). A USB
+   segment containing `&` is an ID Windows generated for a device with no
+   serial number and is not reported. When the instance ID names no
+   VID / PID, parse them from the hardware ID
+   (`USB\VID_xxxx&PID_xxxx&REV_…`, `FTDIBUS\COMPORT&VID_xxxx&PID_xxxx`).
 
 On x64 `SP_DEVICE_INTERFACE_DETAIL_DATA_W.cbSize` must be `8`; on x86
 it must be `6`. Guard this with `sizeof(c_void_p)`.

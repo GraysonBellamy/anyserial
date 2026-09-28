@@ -19,9 +19,11 @@ from anyserial._windows._setupapi import (
     DETAIL_CB_SIZE,
     GUID,
     GUID_DEVINTERFACE_COMPORT,
+    MAX_DEVICE_ID_LEN,
     SP_DEVICE_INTERFACE_DATA,
     SP_DEVICE_INTERFACE_DETAIL_DATA_W,
     SP_DEVINFO_DATA,
+    SetupApiBindings,
 )
 
 
@@ -83,3 +85,12 @@ class TestGuidDevinterfaceComport:
     def test_data4(self) -> None:
         expected = bytes([0x9C, 0xE4, 0x08, 0x00, 0x3E, 0x30, 0x1F, 0x73])
         assert bytes(GUID_DEVINTERFACE_COMPORT.Data4) == expected
+
+
+class TestInstanceIdBinding:
+    def test_max_device_id_len_matches_cfgmgr32(self) -> None:
+        # cfgmgr32.h: #define MAX_DEVICE_ID_LEN 200
+        assert MAX_DEVICE_ID_LEN == 200
+
+    def test_binding_slot_exists(self) -> None:
+        assert "SetupDiGetDeviceInstanceIdW" in SetupApiBindings.__slots__

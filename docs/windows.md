@@ -93,7 +93,7 @@ all open the same port. See [Device-path conventions](#device-path-conventions).
 | Buffer flush           | ✅     | `PurgeComm(PURGE_RX | PURGE_TX)`. |
 | Input / output waiting | ✅     | `ClearCommError` → `COMSTAT.cbInQue` / `cbOutQue`. |
 | `drain()` / exact drain | ✅    | Write completion + `FlushFileBuffers`. |
-| Native discovery       | ✅     | SetupAPI via `GUID_DEVINTERFACE_COMPORT`; USB VID/PID/serial extracted from hardware IDs. |
+| Native discovery       | ✅     | SetupAPI via `GUID_DEVINTERFACE_COMPORT`; VID/PID/serial read from the device instance ID, including FTDI's `FTDIBUS` IDs. |
 | `port.port_info`       | ✅     | Resolved through the same discovery walk, in a worker thread, when the port opens. |
 | Runtime reconfigure    | ✅     | `GetCommState` → overlay → `SetCommState` round-trip. |
 | Modem-line change events | ✅   | `WaitCommEvent(EV_CTS | EV_DSR | EV_RING | EV_RLSD | EV_ERR | EV_BREAK)`. |
@@ -209,10 +209,24 @@ anyio.run(main)
 
 The native Windows enumerator walks SetupAPI with
 `GUID_DEVINTERFACE_COMPORT`
-(`{86E0D1E0-8089-11D0-9CE4-08003E301F73}`) and extracts VID / PID /
-serial_number from the hardware-ID string when the device is USB-
-attached. On-board serial ports (motherboard COM1, PCIe UART cards)
-enumerate cleanly with VID/PID/serial unpopulated.
+(`{86E0D1E0-8089-11D0-9CE4-08003E301F73}`) and reads VID / PID /
+serial_number from each port's device instance ID:
+
+| Adapter | Instance ID | `vid` / `pid` / `serial_number` |
+|---|---|---|
+| FTDI (VCP driver) | `FTDIBUS\VID_0403+PID_6001+BG00VBZSA\0000` | `0x0403` / `0x6001` / `"BG00VBZS"` |
+| USB device with a serial number | `USB\VID_10C4&PID_EA60\0001` | `0x10C4` / `0xEA60` / `"0001"` |
+| USB device without one | `USB\VID_067B&PID_2303\6&406CFD0&0&3` | `0x067B` / `0x2303` / `None` |
+
+FTDI's driver appends a port letter (`A`, `B`, …) to the chip's serial
+number; `anyserial` removes it, so `serial_number` is the USB serial
+number Linux and macOS report for the same adapter. (pySerial on
+Windows keeps the letter.) When a USB device has no serial number,
+Windows invents an instance ID containing `&`, which is not reported.
+For one interface of a composite USB device the serial number belongs
+to the parent device and is `None` here. On-board serial ports
+(motherboard COM1, PCIe UART cards) enumerate cleanly with
+VID/PID/serial unpopulated.
 
 The `hwid` string is pyserial-compatible
 (`USB VID:PID=0403:6001 SER=A12345BC LOCATION=…`), so code that
@@ -222,8 +236,8 @@ here.
 If SetupAPI enumeration fails (restricted session, driver stack
 issue), the backend falls back to reading
 `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` via `winreg` — device path only,
-no USB metadata. The fallback is automatic, but you can force it via
-`backend="pyserial"`:
+no USB metadata. The fallback is automatic. pySerial's enumerator is
+also available:
 
 ```python
 ports = await list_serial_ports(backend="pyserial")

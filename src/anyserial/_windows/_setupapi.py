@@ -62,6 +62,10 @@ REG_MULTI_SZ: int = 7
 # INVALID_HANDLE_VALUE sentinel for SetupDiGetClassDevs.
 INVALID_HANDLE_VALUE: int = -1
 
+# Longest device instance ID, in wide characters (cfgmgr32.h), excluding
+# the terminating NUL.
+MAX_DEVICE_ID_LEN: int = 200
+
 # Maximum buffer size for device-interface detail and registry properties.
 # 512 wide chars is more than enough for any COM-port path or hardware ID.
 _MAX_PATH_WCHARS: int = 512
@@ -179,6 +183,7 @@ class SetupApiBindings:
         "SetupDiDestroyDeviceInfoList",
         "SetupDiEnumDeviceInterfaces",
         "SetupDiGetClassDevsW",
+        "SetupDiGetDeviceInstanceIdW",
         "SetupDiGetDeviceInterfaceDetailW",
         "SetupDiGetDeviceRegistryPropertyW",
     )
@@ -186,6 +191,7 @@ class SetupApiBindings:
     SetupDiDestroyDeviceInfoList: Any
     SetupDiEnumDeviceInterfaces: Any
     SetupDiGetClassDevsW: Any
+    SetupDiGetDeviceInstanceIdW: Any
     SetupDiGetDeviceInterfaceDetailW: Any
     SetupDiGetDeviceRegistryPropertyW: Any
 
@@ -267,6 +273,18 @@ def _bind_setupapi() -> SetupApiBindings:
     get_prop.restype = ctypes.c_bool
     bindings.SetupDiGetDeviceRegistryPropertyW = get_prop
 
+    # SetupDiGetDeviceInstanceIdW → BOOL
+    get_instance_id = setupapi.SetupDiGetDeviceInstanceIdW
+    get_instance_id.argtypes = [
+        c_void_p,  # DeviceInfoSet
+        POINTER(SP_DEVINFO_DATA),  # DeviceInfoData
+        c_void_p,  # DeviceInstanceId (WCHAR buffer)
+        c_uint32,  # DeviceInstanceIdSize, in characters
+        POINTER(c_uint32),  # RequiredSize (out, optional)
+    ]
+    get_instance_id.restype = ctypes.c_bool
+    bindings.SetupDiGetDeviceInstanceIdW = get_instance_id
+
     # SetupDiDestroyDeviceInfoList → BOOL
     destroy = setupapi.SetupDiDestroyDeviceInfoList
     destroy.argtypes = [c_void_p]
@@ -283,6 +301,7 @@ __all__ = [
     "GUID",
     "GUID_DEVINTERFACE_COMPORT",
     "INVALID_HANDLE_VALUE",
+    "MAX_DEVICE_ID_LEN",
     "REG_MULTI_SZ",
     "REG_SZ",
     "SPDRP_FRIENDLYNAME",

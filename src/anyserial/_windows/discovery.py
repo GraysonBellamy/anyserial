@@ -3,8 +3,11 @@ r"""Native SetupAPI-based serial port discovery for Windows.
 Enumerates COM ports via ``GUID_DEVINTERFACE_COMPORT`` using the
 SetupAPI device-interface enumeration surface, then queries registry
 properties (``FRIENDLYNAME``, ``HARDWAREID``, ``LOCATION_INFORMATION``)
-for metadata. USB VID / PID / serial number are parsed from the hardware
-ID string, which follows the format ``USB\VID_xxxx&PID_xxxx\serial``.
+and the device instance ID for metadata. USB VID / PID / serial number
+come from the instance ID — ``USB\VID_xxxx&PID_xxxx\<serial>``, or
+``FTDIBUS\VID_xxxx+PID_xxxx+<serial><port letter>\0000`` for ports of
+FTDI's VCP driver — with the hardware ID as the fallback for VID / PID.
+Hardware IDs never carry a serial number.
 
 Pure sync — :func:`anyserial.discovery.list_serial_ports` runs the
 enumeration in a worker thread via ``anyio.to_thread.run_sync``. No
@@ -36,6 +39,7 @@ from anyserial._windows._setupapi import (
     DIGCF_PRESENT,
     GUID_DEVINTERFACE_COMPORT,
     INVALID_HANDLE_VALUE,
+    MAX_DEVICE_ID_LEN,
     SP_DEVICE_INTERFACE_DATA,
     SP_DEVICE_INTERFACE_DETAIL_DATA_W,
     SP_DEVINFO_DATA,
@@ -47,12 +51,27 @@ from anyserial._windows._setupapi import (
 )
 from anyserial.discovery import PortInfo, canonical_port_name
 
-# Hardware ID pattern: USB\VID_xxxx&PID_xxxx\serial_string
-# The VID and PID are 4-char hex; the trailing segment (after the second
-# backslash) is the device serial number, which may be absent.
-_USB_HWID_RE = re.compile(
-    r"USB\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})(?:\\(.+))?",
+# Device instance IDs that name a USB serial port:
+#
+#   USB\VID_10C4&PID_EA60\0001                    serial number "0001"
+#   USB\VID_067B&PID_2303\6&406CFD0&0&3           no serial; Windows made one up
+#   USB\VID_2341&PID_8036&MI_00\7&2A4F6E1&0&0000  one interface of a composite device
+#   FTDIBUS\VID_0403+PID_6001+BG00VBZSA\0000      FTDI VCP: serial "BG00VBZS", port A
+#
+# The last USB segment is the device's serial number unless it contains "&",
+# which marks an ID Windows generated for a device without one.
+_USB_INSTANCE_ID_RE = re.compile(
+    r"USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})(?:&MI_[0-9A-F]{2})?(?:\\([^\\]+))?",
+    re.IGNORECASE,
 )
+_FTDIBUS_INSTANCE_ID_RE = re.compile(
+    r"FTDIBUS\\VID_([0-9A-F]{4})\+PID_([0-9A-F]{4})(?:\+([^\\]+))?",
+    re.IGNORECASE,
+)
+
+# VID / PID anywhere in a hardware ID: ``USB\VID_067B&PID_2303&REV_0400``,
+# ``FTDIBUS\COMPORT&VID_0403&PID_6001``.
+_HWID_VID_PID_RE = re.compile(r"VID_([0-9A-F]{4})[&+]PID_([0-9A-F]{4})", re.IGNORECASE)
 
 
 def enumerate_ports() -> list[PortInfo]:
@@ -169,14 +188,14 @@ def _resolve_interface(
     friendly = _get_registry_string(setupapi, dev_info, devinfo, SPDRP_FRIENDLYNAME)
     hardware_id = _get_registry_string(setupapi, dev_info, devinfo, SPDRP_HARDWAREID)
     location = _get_registry_string(setupapi, dev_info, devinfo, SPDRP_LOCATION_INFORMATION)
+    instance_id = _get_instance_id(setupapi, dev_info, devinfo)
 
     # The device path from SetupAPI is the long-form interface path
     # (e.g. \\?\usb#vid_0403&pid_6001#...). We need the short COM name.
     com_name = _extract_com_name(friendly) or _extract_com_name_from_path(device_path)
     device = com_name or device_path
 
-    # Parse USB VID/PID/serial from hardware ID.
-    vid, pid, serial_number = _parse_hardware_id(hardware_id)
+    vid, pid, serial_number = _parse_device_ids(instance_id, hardware_id)
 
     return PortInfo(
         device=device,
@@ -223,6 +242,25 @@ def _get_registry_string(
 
     value = buf.value.strip()
     return value or None
+
+
+def _get_instance_id(
+    setupapi: SetupApiBindings,
+    dev_info: int,
+    devinfo: SP_DEVINFO_DATA,
+) -> str | None:
+    r"""Read the device instance ID (``USB\VID_…\…``), or ``None`` on failure."""
+    buf = create_unicode_buffer(MAX_DEVICE_ID_LEN + 1)
+    ok = setupapi.SetupDiGetDeviceInstanceIdW(
+        dev_info,
+        byref(devinfo),
+        buf,
+        len(buf),
+        None,
+    )
+    if not ok:
+        return None
+    return buf.value or None
 
 
 # ---------------------------------------------------------------------------
@@ -280,20 +318,79 @@ def _enumerate_registry_fallback() -> list[PortInfo]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_hardware_id(hwid: str | None) -> tuple[int | None, int | None, str | None]:
-    r"""Parse ``USB\VID_xxxx&PID_xxxx\serial`` into (vid, pid, serial).
+def _parse_device_ids(
+    instance_id: str | None,
+    hardware_id: str | None,
+) -> tuple[int | None, int | None, str | None]:
+    """Return ``(vid, pid, serial_number)`` for a port's device.
 
-    Returns ``(None, None, None)`` for non-USB or unparseable strings.
+    The instance ID comes first: it is the only ID that records the serial
+    number. When it names no VID / PID, they come from the hardware ID and
+    the serial number stays ``None``. Ports that are not USB (PCI, ACPI)
+    give ``(None, None, None)``.
+    """
+    ids = _parse_instance_id(instance_id)
+    if ids[0] is not None:
+        return ids
+    vid, pid = _parse_hardware_id(hardware_id)
+    return vid, pid, None
+
+
+def _parse_instance_id(instance_id: str | None) -> tuple[int | None, int | None, str | None]:
+    r"""Parse a USB or FTDIBUS device instance ID into ``(vid, pid, serial)``.
+
+    Returns ``(None, None, None)`` for any other bus.
+    """
+    if instance_id is None:
+        return None, None, None
+    if (m := _USB_INSTANCE_ID_RE.match(instance_id)) is not None:
+        return int(m.group(1), 16), int(m.group(2), 16), _usb_serial_number(m.group(3))
+    if (m := _FTDIBUS_INSTANCE_ID_RE.match(instance_id)) is not None:
+        return int(m.group(1), 16), int(m.group(2), 16), _ftdi_serial_number(m.group(3))
+    return None, None, None
+
+
+def _parse_hardware_id(hwid: str | None) -> tuple[int | None, int | None]:
+    r"""Return ``(vid, pid)`` named anywhere in a hardware ID, or ``(None, None)``.
+
+    Matches both ``USB\VID_xxxx&PID_xxxx…`` and FTDI's
+    ``FTDIBUS\COMPORT&VID_xxxx&PID_xxxx``.
     """
     if hwid is None:
-        return None, None, None
-    m = _USB_HWID_RE.search(hwid)
+        return None, None
+    m = _HWID_VID_PID_RE.search(hwid)
     if m is None:
-        return None, None, None
-    vid = int(m.group(1), 16)
-    pid = int(m.group(2), 16)
-    serial = m.group(3) or None
-    return vid, pid, serial
+        return None, None
+    return int(m.group(1), 16), int(m.group(2), 16)
+
+
+def _usb_serial_number(segment: str | None) -> str | None:
+    """Return the serial number in a USB instance ID's last segment.
+
+    ``None`` when the segment is missing or contains ``&``, which marks an
+    ID Windows generated for a device that reports no serial number.
+    """
+    if not segment or "&" in segment:
+        return None
+    return segment
+
+
+def _ftdi_serial_number(segment: str | None) -> str | None:
+    """Return the chip serial number in an FTDIBUS instance ID segment.
+
+    FTDI's driver appends a port letter to the serial number (``A`` for
+    the first port), so an FT232R with serial ``BG00VBZS`` appears as
+    ``BG00VBZSA`` and the ports of an FT2232H with serial ``FT5ABCDE`` as
+    ``FT5ABCDEA`` and ``FT5ABCDEB``. The letter is removed so the value is
+    the USB serial number other platforms report. ``None`` when the
+    segment is missing or is an ID containing ``&`` rather than a serial
+    number.
+    """
+    if not segment or "&" in segment:
+        return None
+    if len(segment) > 1 and "A" <= segment[-1] <= "Z":
+        return segment[:-1]
+    return segment
 
 
 def _extract_com_name(friendly: str | None) -> str | None:

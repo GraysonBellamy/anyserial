@@ -1269,6 +1269,7 @@ class PortInfo:
 | Linux | sysfs scan (`/sys/class/tty`, resolve device paths, parse USB metadata) | `pyudev` optional extra; `pyserial.tools.list_ports` optional extra |
 | Darwin | IOKit via `ctypes` + `CoreFoundation` | `pyserial.tools.list_ports` optional extra |
 | BSD | `/dev` scan + `sysctl` for USB metadata | `pyserial.tools.list_ports` optional extra |
+| Windows | SetupAPI `GUID_DEVINTERFACE_COMPORT`; USB metadata from the device instance ID | `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM`; `pyserial.tools.list_ports` optional extra |
 
 Native Linux discovery is first-class. pySerial discovery is available via the `anyserial[discovery-pyserial]` extra for users who want to reuse existing behavior.
 
