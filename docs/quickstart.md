@@ -270,8 +270,24 @@ anyio.run(main)
 ```
 
 `serial_port_pair` exposes the same `SerialPort` surface as a real
-device. The `anyserial.testing` module also exports `MockBackend` and
-`FaultPlan` for fault-injection tests — see the module docstring.
+device. To exercise failure paths, `faults_of(port)` returns that side's
+live `FaultPlan`; set a field and the port's next reads or writes fail
+that way:
+
+```python
+from anyserial import SerialDisconnectedError
+from anyserial.testing import faults_of, serial_port_pair
+
+a, b = serial_port_pair()
+faults_of(b).disconnected = True  # b's reads see EOF from here on
+await a.send(b"gone")
+try:
+    await b.receive(16)
+except SerialDisconnectedError:
+    ...
+```
+
+See `FaultPlan` in `anyserial.testing` for every knob.
 
 ## Sync wrapper
 

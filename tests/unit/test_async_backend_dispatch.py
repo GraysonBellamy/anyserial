@@ -35,6 +35,7 @@ from anyserial.stream import (
     _PosixSerialPort,
     open_serial_port,
 )
+from anyserial.testing import faults_of
 
 # Run the async tests across the full backend matrix from tests/conftest.py
 # (asyncio, asyncio+uvloop, trio).
@@ -244,6 +245,16 @@ class TestTypedAttributes:
         assert toy_port.extra(FileStreamAttribute.path) == Path("TOY1")
         assert toy_port.extra(SerialStreamAttribute.capabilities).backend == "toy-async"
         assert toy_port.extra(SerialStreamAttribute.config) == toy_port.config
+        await toy_port.aclose()
+
+
+class TestFaultsOf:
+    async def test_rejects_a_port_not_backed_by_mock_backend(
+        self,
+        toy_port: _AsyncBackendSerialPort,
+    ) -> None:
+        with pytest.raises(TypeError, match=r"'TOY1' uses _ToyAsyncBackend"):
+            faults_of(toy_port)
         await toy_port.aclose()
 
 

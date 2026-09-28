@@ -149,7 +149,7 @@ await a.send(b"hello")
 assert await b.receive(5) == b"hello"
 ```
 
-`MockBackend` and `FaultPlan` (also in `anyserial.testing`) cover fault-injection scenarios.
+`faults_of(port)` returns a side's live `FaultPlan` for fault injection (`faults_of(b).disconnected = True`); `MockBackend` and `FaultPlan` are in `anyserial.testing` too.
 
 ## Documentation
 

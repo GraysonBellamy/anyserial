@@ -31,7 +31,7 @@ from anyserial import (
     UnsupportedPlatformError,
 )
 from anyserial.stream import SerialConnectable, open_serial_port
-from anyserial.testing import serial_port_pair
+from anyserial.testing import faults_of, serial_port_pair
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -145,7 +145,7 @@ class TestResourceGuards:
         # Park the first writer indefinitely by injecting many EAGAINs —
         # wait_writable + the retry loop yields between each, giving the
         # second task time to hit the guard and raise.
-        a._backend.faults.eagain_writes = 10_000  # type: ignore[union-attr]
+        faults_of(a).eagain_writes = 10_000
 
         async def first() -> None:
             try:
@@ -190,7 +190,7 @@ class TestFaultPaths:
         self, pair: tuple[SerialPort, SerialPort]
     ) -> None:
         a, b = pair
-        b._backend.faults.eagain_reads = 2  # type: ignore[union-attr]
+        faults_of(b).eagain_reads = 2
         await a.send(b"retry")
         data = await b.receive(64)
         assert data == b"retry"
@@ -199,7 +199,7 @@ class TestFaultPaths:
         self, pair: tuple[SerialPort, SerialPort]
     ) -> None:
         a, b = pair
-        b._backend.faults.eintr_reads = 1  # type: ignore[union-attr]
+        faults_of(b).eintr_reads = 1
         await a.send(b"eintr")
         data = await b.receive(64)
         assert data == b"eintr"
@@ -208,7 +208,7 @@ class TestFaultPaths:
         self, pair: tuple[SerialPort, SerialPort]
     ) -> None:
         a, b = pair
-        a._backend.faults.short_write_max = 2  # type: ignore[union-attr]
+        faults_of(a).short_write_max = 2
         await a.send(b"abcdef")
         # Drain the peer until we've accumulated all the bytes.
         buf = b""
@@ -220,7 +220,7 @@ class TestFaultPaths:
         self, pair: tuple[SerialPort, SerialPort]
     ) -> None:
         a, b = pair
-        b._backend.faults.disconnected = True  # type: ignore[union-attr]
+        faults_of(b).disconnected = True
         # Prime the socket so wait_readable returns, then the mock reports EOF.
         await a.send(b"gone")
         with pytest.raises(SerialDisconnectedError):
@@ -230,12 +230,42 @@ class TestFaultPaths:
         self, pair: tuple[SerialPort, SerialPort]
     ) -> None:
         a, b = pair
-        b._backend.faults.disconnected = True  # type: ignore[union-attr]
+        faults_of(b).disconnected = True
         await a.send(b"gone")
         # SerialDisconnectedError is a BrokenResourceError — AnyIO code that
         # only catches the base class still handles it.
         with pytest.raises(anyio.BrokenResourceError):
             await b.receive(16)
+
+
+class TestFaultsOf:
+    async def test_each_side_has_its_own_plan(self, pair: tuple[SerialPort, SerialPort]) -> None:
+        a, b = pair
+        assert faults_of(a) is faults_of(a)
+        assert faults_of(a) is not faults_of(b)
+
+    async def test_plan_is_live(self, pair: tuple[SerialPort, SerialPort]) -> None:
+        a, b = pair
+        plan = faults_of(b)
+        plan.eagain_reads = 2
+        await a.send(b"live")
+        assert await b.receive(16) == b"live"
+        assert plan.eagain_reads == 0
+
+    async def test_plan_set_before_first_use_applies(self) -> None:
+        a, b = serial_port_pair()
+        faults_of(a).short_write_max = 1
+        faults_of(a).eagain_writes = 3
+        try:
+            await a.send(b"abc")
+            assert faults_of(a).eagain_writes == 0
+            buf = b""
+            while len(buf) < 3:
+                buf += await b.receive(16)
+            assert buf == b"abc"
+        finally:
+            await a.aclose()
+            await b.aclose()
 
 
 class TestClose:
