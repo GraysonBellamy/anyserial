@@ -45,7 +45,7 @@ from anyserial._windows._setupapi import (
     SetupApiBindings,
     load_setupapi,
 )
-from anyserial.discovery import PortInfo
+from anyserial.discovery import PortInfo, canonical_port_name
 
 # Hardware ID pattern: USB\VID_xxxx&PID_xxxx\serial_string
 # The VID and PID are 4-char hex; the trailing segment (after the second
@@ -70,21 +70,21 @@ def enumerate_ports() -> list[PortInfo]:
 
 
 def resolve_port_info(path: str) -> PortInfo | None:
-    """Resolve a single COM-port path to its :class:`PortInfo`, or ``None``.
+    r"""Resolve a single COM-port path to its :class:`PortInfo`, or ``None``.
 
-    Single-entry lookup so :func:`anyserial.open_serial_port` can
-    populate the ``port_info`` typed attribute without paying for a full
-    enumeration walk.
+    Used by :func:`anyserial.open_serial_port` to populate the
+    ``port_info`` typed attribute. Walks the SetupAPI enumeration (then
+    the registry fallback) and stops at the first entry whose
+    :func:`canonical_port_name` matches ``path``'s, so ``com8``,
+    ``\\.\COM8`` and ``\\?\COM8`` all resolve to the ``COM8`` entry.
     """
-    # Normalise: strip the \\.\ prefix for comparison against SetupAPI
-    # device paths, which use the short form.
-    normalised = _strip_dos_prefix(path).upper()
+    wanted = canonical_port_name(path, platform="win32")
     for info in _enumerate_setupapi():
-        if _strip_dos_prefix(info.device).upper() == normalised:
+        if canonical_port_name(info.device, platform="win32") == wanted:
             return info
     # Fallback: if SetupAPI didn't find it, try the registry path.
     for info in _enumerate_registry_fallback():
-        if _strip_dos_prefix(info.device).upper() == normalised:
+        if canonical_port_name(info.device, platform="win32") == wanted:
             return info
     return None
 
@@ -329,13 +329,6 @@ def _strip_com_suffix(friendly: str | None) -> str | None:
         return None
     result = re.sub(r"\s*\(COM\d+\)", "", friendly).strip()
     return result or None
-
-
-def _strip_dos_prefix(path: str) -> str:
-    r"""Strip the ``\\.\`` or ``\\?\`` DOS device prefix if present."""
-    if path.startswith(("\\\\.\\", "\\\\?\\")):
-        return path[4:]
-    return path
 
 
 def _format_hwid(

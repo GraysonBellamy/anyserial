@@ -73,6 +73,46 @@ Filters are AND-ed together. Any unset filter contributes no constraint.
 Returns the first match in `list_serial_ports()` order, or `None` when
 no port satisfies every filter.
 
+`vid`, `pid` and `serial_number` must be equal. `device` matches any
+name of the port (see [Port names](#port-names)): `device="com8"` finds
+`COM8` on Windows, and a `/dev/serial/by-id/...` symlink finds the
+`/dev/ttyUSB0` it points at.
+
+## Port names
+
+One port answers to several names:
+
+- on Windows, `COM8`, `com8`, `\\.\COM8` and `\\?\COM8`;
+- on Linux, macOS and the BSDs, a symlink such as
+  `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A12345BC-if00-port0` and
+  the device node it points at.
+
+`canonical_port_name` maps all of them to one string, so it works as a
+key for "is this the same port?" — sharing one connection per port,
+refusing a second open, or labelling data with the port it came from:
+
+```python
+from anyserial import canonical_port_name
+
+canonical_port_name(r"\\?\com8")  # "COM8" on Windows
+canonical_port_name("/dev/serial/by-id/usb-FTDI_…-if00-port0")  # "/dev/ttyUSB0"
+```
+
+| Platform | Rule |
+|---|---|
+| Windows | Strip a leading `\\.\` / `\\?\`, then upper-case (device names are case-insensitive). For a `COMn` port the result equals the `PortInfo.device` discovery reports. |
+| Others | Resolve every symlink when the path exists; otherwise return it unchanged (an unplugged port, or a name like `socket://…` that is not a file). |
+
+Pass `platform="win32"` (or any `sys.platform` value) to apply another
+platform's rules; by default the running platform's rules apply. The
+function never raises, and on POSIX it only reads the filesystem.
+
+`SerialPort.path` returns the name the port was opened with, unchanged,
+so `canonical_port_name(port.path)` is the key for an open port. Compare
+canonical names with canonical names: a `PortInfo.device` that is not a
+`COMn` name (a Windows device-interface path, for example) is not itself
+canonical.
+
 ## `port.port_info` after open
 
 `open_serial_port(...)` resolves the path through the same discovery

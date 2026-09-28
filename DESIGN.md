@@ -443,7 +443,7 @@ API parity with async `SerialPort`, minus the `async`/`await`, plus optional per
 - `SerialConfig`, `FlowControl`, `RS485Config`
 - `Parity`, `StopBits`, `ByteSize`, `UnsupportedPolicy`, `Capability`
 - `ModemLines`, `ControlLines`, `SerialCapabilities`, `SerialStreamAttribute`
-- `PortInfo`, `list_serial_ports`, `find_serial_port`
+- `PortInfo`, `list_serial_ports`, `find_serial_port`, `canonical_port_name`
 - `BytesLike` type alias
 - All exception classes
 - `__version__`
@@ -1273,6 +1273,12 @@ class PortInfo:
 Native Linux discovery is first-class. pySerial discovery is available via the `anyserial[discovery-pyserial]` extra for users who want to reuse existing behavior.
 
 Discovery is **always live** — no caching. Caching is a user-side concern.
+
+### 23.2 Port names
+
+One port has several names: `COM8`, `com8`, `\\.\COM8` and `\\?\COM8` on Windows; a `/dev/serial/by-id/...` symlink and its target on POSIX. `canonical_port_name(path, *, platform=None) -> str` maps them to one comparison key — on Windows by stripping the device prefix and upper-casing, elsewhere by resolving symlinks when the path exists. It is synchronous and never raises; the POSIX branch reads the filesystem only to resolve symlinks.
+
+`find_serial_port(device=...)` compares canonical names, so any name of a port finds it. `SerialPort.path` stays the caller's string; the canonical name is derived from it on demand rather than replacing it, so logs and `FileStreamAttribute.path` show what the caller asked for.
 
 ---
 

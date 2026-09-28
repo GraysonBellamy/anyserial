@@ -15,7 +15,13 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from anyserial import PortInfo, discovery, find_serial_port, list_serial_ports
+from anyserial import (
+    PortInfo,
+    canonical_port_name,
+    discovery,
+    find_serial_port,
+    list_serial_ports,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -97,7 +103,7 @@ def _matches(port: PortInfo, f: _Filter) -> bool:
         (f.vid is None or port.vid == f.vid)
         and (f.pid is None or port.pid == f.pid)
         and (f.serial_number is None or port.serial_number == f.serial_number)
-        and (f.device is None or port.device == f.device)
+        and (f.device is None or canonical_port_name(port.device) == canonical_port_name(f.device))
     )
 
 

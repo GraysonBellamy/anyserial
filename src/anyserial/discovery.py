@@ -3,11 +3,13 @@
 :class:`PortInfo` describes a single discovered serial port;
 :func:`list_serial_ports` enumerates every port the host platform exposes;
 :func:`find_serial_port` returns the first match against caller-supplied
-filters. Discovery is always live — no caching, per :doc:`DESIGN` §23.
+filters; :func:`canonical_port_name` maps every name of one port to a
+single comparison key. Discovery is always live — no caching, per
+:doc:`DESIGN` §23.
 
-The public functions are async because enumeration performs filesystem and
-platform-metadata I/O (sysfs walks on Linux, IOKit calls on macOS, USB-bus
-enumeration). Wrapping the per-platform sync enumerator in
+The enumeration functions are async because enumeration performs filesystem
+and platform-metadata I/O (sysfs walks on Linux, IOKit calls on macOS,
+USB-bus enumeration). Wrapping the per-platform sync enumerator in
 :func:`anyio.to_thread.run_sync` keeps the AnyIO-first promise honest and
 lets callers run discovery inside cancellation scopes.
 
@@ -18,6 +20,7 @@ enumerator raise :class:`UnsupportedPlatformError`.
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -41,6 +44,9 @@ type DiscoveryBackend = Literal["native", "pyudev", "pyserial"]
 - ``"pyserial"``: cross-platform fallback via the ``pyserial`` extra.
   Useful on platforms whose native enumerator hasn't landed yet.
 """
+
+# Win32 device-namespace prefixes. Both are four characters long.
+_WINDOWS_DEVICE_PREFIXES = ("\\\\.\\", "\\\\?\\")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -110,20 +116,24 @@ async def find_serial_port(
     """Return the first port matching every supplied filter, or ``None``.
 
     All keyword arguments default to ``None`` (no constraint). Multiple
-    filters are AND-ed together. Equality is exact: integer ``vid`` /
-    ``pid`` must match the integer parsed from sysfs / IOKit; string fields
-    are compared verbatim.
+    filters are AND-ed together. Integer ``vid`` / ``pid`` must equal the
+    integer parsed from the platform metadata and ``serial_number`` is
+    compared verbatim. ``device`` matches any name of the same port: both
+    sides go through :func:`canonical_port_name`, so ``"com8"`` finds
+    ``COM8`` on Windows and a ``/dev/serial/by-id/...`` symlink finds the
+    ``/dev/ttyUSB0`` it points at.
 
     Args:
         vid: USB vendor ID to match (e.g. ``0x0403`` for FTDI).
         pid: USB product ID to match.
         serial_number: USB device serial-number string to match.
-        device: Filesystem device path to match (e.g. ``"/dev/ttyUSB0"``).
+        device: Device path or port name to match (e.g. ``"/dev/ttyUSB0"``
+            or ``"COM8"``).
         backend: Discovery backend selector; see :func:`list_serial_ports`.
 
     Returns:
-        The first :class:`PortInfo` from :func:`list_serial_ports` that
-        satisfies every filter, or ``None`` if no port matched.
+        The first :class:`PortInfo`, in :func:`list_serial_ports` order,
+        that satisfies every filter, or ``None`` if no port matched.
 
     Raises:
         UnsupportedPlatformError: The selected backend is not implemented
@@ -131,18 +141,74 @@ async def find_serial_port(
         ImportError: An optional-extra backend was selected but the
             third-party package is not installed.
     """
-    ports = await list_serial_ports(backend=backend)
-    return next(
-        (
-            p
-            for p in ports
-            if (vid is None or p.vid == vid)
-            and (pid is None or p.pid == pid)
-            and (serial_number is None or p.serial_number == serial_number)
-            and (device is None or p.device == device)
-        ),
-        None,
-    )
+    enumerate_fn = _select_discovery(backend)
+
+    def first_match() -> PortInfo | None:
+        # Runs in the worker thread: canonicalizing a POSIX path reads the
+        # filesystem, like the enumeration itself.
+        wanted = None if device is None else canonical_port_name(device)
+        return next(
+            (
+                p
+                for p in enumerate_fn()
+                if (vid is None or p.vid == vid)
+                and (pid is None or p.pid == pid)
+                and (serial_number is None or p.serial_number == serial_number)
+                and (wanted is None or canonical_port_name(p.device) == wanted)
+            ),
+            None,
+        )
+
+    return await anyio.to_thread.run_sync(first_match)
+
+
+def canonical_port_name(path: str, *, platform: str | None = None) -> str:
+    r"""Return the one name shared by every spelling of serial port ``path``.
+
+    A port answers to several names: ``COM8``, ``com8``, ``\\.\COM8`` and
+    ``\\?\COM8`` on Windows; a ``/dev/serial/by-id/...`` symlink and the
+    ``/dev/ttyUSB0`` it points at on POSIX. Two names refer to the same
+    port when their canonical names are equal, so the result works as a
+    key for sharing one connection per port, refusing a second open, or
+    reporting the port.
+
+    - **Windows:** leading ``\\.\`` and ``\\?\`` device prefixes are
+      removed and the rest upper-cased, since Win32 device names are
+      case-insensitive. For a ``COMn`` port the result equals the
+      :attr:`PortInfo.device` that :func:`list_serial_ports` reports.
+    - **Elsewhere:** the resolved path, with every symlink followed, when
+      ``path`` exists; otherwise ``path`` unchanged (a port that is
+      unplugged, or a name that is not a filesystem path).
+
+    Compare canonical names with canonical names: a :attr:`PortInfo.device`
+    that is not a ``COMn`` name (a Windows device-interface path, say) is
+    not itself canonical. :attr:`SerialPort.path` returns the name the port
+    was opened with, so ``canonical_port_name(port.path)`` is the key for an
+    open port.
+
+    The function never raises. On POSIX it reads the filesystem to resolve
+    symlinks; it performs no other I/O.
+
+    Args:
+        path: The port name as given, e.g. ``"com8"`` or
+            ``"/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A12345-if00-port0"``.
+        platform: The :data:`sys.platform` value whose naming rules apply.
+            Defaults to the running platform, read at call time.
+
+    Returns:
+        The canonical name of the port.
+    """
+    if (sys.platform if platform is None else platform) == "win32":
+        name = path
+        # A loop, not a single strip, so the result is canonical itself.
+        while name.startswith(_WINDOWS_DEVICE_PREFIXES):
+            name = name[4:]
+        return name.upper()
+    # ``os.path`` rather than ``pathlib``: ``Path("")`` means ``"."``, which
+    # exists, and ``os.path.exists`` reports every OSError as ``False``.
+    if os.path.exists(path):  # noqa: PTH110
+        return os.path.realpath(path)
+    return path
 
 
 def _select_discovery(backend: DiscoveryBackend = "native") -> Callable[[], list[PortInfo]]:
@@ -206,6 +272,7 @@ def _select_discovery(backend: DiscoveryBackend = "native") -> Callable[[], list
 __all__ = [
     "DiscoveryBackend",
     "PortInfo",
+    "canonical_port_name",
     "find_serial_port",
     "list_serial_ports",
 ]

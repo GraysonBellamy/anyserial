@@ -2,22 +2,25 @@
 """Unit tests for the Windows SetupAPI discovery helpers.
 
 Tests the pure-Python string-parsing functions that extract USB metadata
-from Windows hardware ID strings and friendly names. These run on any
-platform — the actual SetupAPI calls are exercised only in Windows CI
-integration tests.
+from Windows hardware ID strings and friendly names, and the path
+matching in ``resolve_port_info`` with the enumerators replaced. These run
+on any platform — the actual SetupAPI calls are exercised only in Windows
+CI integration tests.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from anyserial._windows import discovery as windows_discovery
 from anyserial._windows.discovery import (
     _extract_com_name,
     _format_hwid,
     _parse_hardware_id,
     _strip_com_suffix,
-    _strip_dos_prefix,
+    resolve_port_info,
 )
+from anyserial.discovery import PortInfo
 
 
 class TestParseHardwareId:
@@ -99,21 +102,39 @@ class TestStripComSuffix:
         assert _strip_com_suffix(None) is None
 
 
-class TestStripDosPrefix:
-    r"""Strip ``\\.\`` or ``\\?\`` device prefix."""
+_COM3 = PortInfo(device="COM3", name="COM3", description="Communications Port (COM3)")
+_COM8 = PortInfo(device="COM8", name="COM8", description="USB Serial Port (COM8)")
+_COM20 = PortInfo(device="COM20", name="COM20")
 
-    def test_dot_prefix(self) -> None:
-        assert _strip_dos_prefix("\\\\.\\COM1") == "COM1"
 
-    def test_question_prefix(self) -> None:
-        assert _strip_dos_prefix("\\\\?\\COM10") == "COM10"
+class TestResolvePortInfo:
+    """``resolve_port_info`` finds the entry for every spelling of a port."""
 
-    def test_no_prefix(self) -> None:
-        assert _strip_dos_prefix("COM1") == "COM1"
+    @pytest.fixture(autouse=True)
+    def _ports(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            windows_discovery,
+            "_enumerate_setupapi",
+            lambda: [_COM3, _COM8],
+        )
+        monkeypatch.setattr(
+            windows_discovery,
+            "_enumerate_registry_fallback",
+            lambda: [_COM20],
+        )
 
-    def test_long_path(self) -> None:
-        path = "\\\\?\\USB#VID_0403&PID_6001#A12345#{86e0d1e0}"
-        assert _strip_dos_prefix(path) == "USB#VID_0403&PID_6001#A12345#{86e0d1e0}"
+    @pytest.mark.parametrize(
+        "path",
+        ["COM8", "com8", "\\\\.\\COM8", "\\\\?\\COM8", "\\\\.\\com8", "\\\\?\\com8"],
+    )
+    def test_every_spelling_resolves(self, path: str) -> None:
+        assert resolve_port_info(path) == _COM8
+
+    def test_falls_back_to_the_registry(self) -> None:
+        assert resolve_port_info("com20") == _COM20
+
+    def test_unknown_port_is_none(self) -> None:
+        assert resolve_port_info("COM99") is None
 
 
 class TestFormatHwid:

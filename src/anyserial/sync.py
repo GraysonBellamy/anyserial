@@ -212,7 +212,11 @@ class SerialPort:
 
     @property
     def path(self) -> str:
-        """Device path the port was opened on."""
+        """Device path exactly as passed to :func:`open_serial_port`.
+
+        Not normalised; see :attr:`anyserial.SerialPort.path` and
+        :func:`anyserial.canonical_port_name`.
+        """
         return self._async_port.path
 
     @property

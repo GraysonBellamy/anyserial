@@ -133,6 +133,11 @@ def test_open_serial_port_signature() -> None:
     assert _shape is not None
 
 
+def test_canonical_port_name_signature() -> None:
+    assert_type(anyserial.canonical_port_name("com8", platform="win32"), str)
+    assert_type(anyserial.canonical_port_name("/dev/ttyUSB0"), str)
+
+
 def test_serial_connectable_connect_signature() -> None:
     async def _shape(conn: SerialConnectable) -> None:
         assert_type(await conn.connect(), SerialPort)
@@ -266,6 +271,7 @@ def test_top_level_reexports_are_present() -> None:
         "UnsupportedFeatureError",
         "UnsupportedPolicy",
         "__version__",
+        "canonical_port_name",
         "open_serial_port",
     }
     missing = expected - set(anyserial.__all__)

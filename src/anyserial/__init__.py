@@ -19,7 +19,13 @@ from anyserial._types import (
 from anyserial._version import __version__
 from anyserial.capabilities import SerialCapabilities, SerialStreamAttribute
 from anyserial.config import FlowControl, RS485Config, SerialConfig
-from anyserial.discovery import DiscoveryBackend, PortInfo, find_serial_port, list_serial_ports
+from anyserial.discovery import (
+    DiscoveryBackend,
+    PortInfo,
+    canonical_port_name,
+    find_serial_port,
+    list_serial_ports,
+)
 from anyserial.exceptions import (
     ConfigurationError,
     PortBusyError,
@@ -64,6 +70,7 @@ __all__ = [
     "UnsupportedPlatformError",
     "UnsupportedPolicy",
     "__version__",
+    "canonical_port_name",
     "find_serial_port",
     "list_serial_ports",
     "open_serial_port",

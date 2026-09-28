@@ -223,7 +223,13 @@ class SerialPort(anyio.abc.ByteStream):
 
     @property
     def path(self) -> str:
-        """Device path the backend was opened on."""
+        """Device path exactly as passed to :func:`open_serial_port`.
+
+        Not normalised: ``"com8"`` stays ``"com8"`` and a
+        ``/dev/serial/by-id/...`` symlink is not resolved. Use
+        :func:`anyserial.canonical_port_name` on it for a key that is the
+        same for every name of the port.
+        """
         return self._backend.path
 
     @property

@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import dataclasses
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -24,11 +25,17 @@ from anyserial import discovery
 from anyserial._discovery.pyserial import enumerate_ports as _pyserial_enumerate
 from anyserial._discovery.pyudev import enumerate_ports as _pyudev_enumerate
 from anyserial._linux.discovery import enumerate_ports as _linux_enumerate_ports
-from anyserial.discovery import PortInfo, find_serial_port, list_serial_ports
+from anyserial.discovery import (
+    PortInfo,
+    canonical_port_name,
+    find_serial_port,
+    list_serial_ports,
+)
 from anyserial.exceptions import UnsupportedPlatformError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
 
 pytestmark = pytest.mark.anyio
@@ -56,6 +63,23 @@ _CP210X = PortInfo(
     manufacturer="Silicon Labs",
 )
 _BUILTIN = PortInfo(device="/dev/ttyS0", name="ttyS0")
+_WIN_COM3 = PortInfo(device="COM3", name="COM3", description="Communications Port (COM3)")
+_WIN_COM8 = PortInfo(
+    device="COM8",
+    name="COM8",
+    description="USB Serial Port (COM8)",
+    vid=0x0403,
+    pid=0x6001,
+    serial_number="BG00VBZS",
+)
+
+
+def _symlink(link: Path, target: Path) -> None:
+    """Create ``link`` pointing at ``target``, or skip where that is not permitted."""
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # Windows without the symlink privilege
+        pytest.skip(f"cannot create symlinks here: {exc}")
 
 
 def _stub_enumerator(ports: list[PortInfo]) -> Callable[[], list[PortInfo]]:
@@ -196,6 +220,102 @@ class TestFindSerialPort:
         stub_discovery([])
         assert await find_serial_port(vid=0x0403) is None
 
+    @pytest.mark.parametrize("name", ["COM8", "com8", "\\\\.\\COM8", "\\\\?\\com8"])
+    async def test_device_matches_every_windows_spelling(
+        self,
+        stub_discovery: Callable[[list[PortInfo]], None],
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+    ) -> None:
+        stub_discovery([_WIN_COM3, _WIN_COM8])
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert await find_serial_port(device=name) == _WIN_COM8
+
+    async def test_device_matches_a_symlink_to_the_port(
+        self,
+        stub_discovery: Callable[[list[PortInfo]], None],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        target = tmp_path / "ttyUSB0"
+        target.touch()
+        link = tmp_path / "usb-FTDI_FT232R_USB_UART_A12345BC-if00-port0"
+        _symlink(link, target)
+        port = dataclasses.replace(_FTDI, device=str(target))
+        stub_discovery([_BUILTIN, port])
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert await find_serial_port(device=str(link)) == port
+
+    async def test_device_and_other_filters_are_anded(
+        self,
+        stub_discovery: Callable[[list[PortInfo]], None],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stub_discovery([_WIN_COM3, _WIN_COM8])
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert await find_serial_port(device="com8", vid=0x0403) == _WIN_COM8
+        assert await find_serial_port(device="com8", vid=0x10C4) is None
+
+
+class TestCanonicalPortName:
+    @pytest.mark.parametrize(
+        "name",
+        ["COM8", "com8", "Com8", "\\\\.\\COM8", "\\\\?\\COM8", "\\\\.\\com8", "\\\\?\\com8"],
+    )
+    def test_windows_names_of_one_port_agree(self, name: str) -> None:
+        assert canonical_port_name(name, platform="win32") == "COM8"
+
+    def test_windows_ports_above_com9(self) -> None:
+        assert canonical_port_name("\\\\.\\com10", platform="win32") == "COM10"
+
+    def test_windows_name_matches_what_discovery_reports(self) -> None:
+        assert canonical_port_name("\\\\?\\com8", platform="win32") == _WIN_COM8.device
+
+    def test_windows_device_interface_path(self) -> None:
+        path = "\\\\?\\usb#vid_0403&pid_6001#a12345#{86e0d1e0-8089-11d0-9ce4-08003e301f73}"
+        assert canonical_port_name(path, platform="win32") == (
+            "USB#VID_0403&PID_6001#A12345#{86E0D1E0-8089-11D0-9CE4-08003E301F73}"
+        )
+
+    def test_posix_symlink_resolves_to_its_target(self, tmp_path: Path) -> None:
+        target = tmp_path / "ttyUSB0"
+        target.touch()
+        link = tmp_path / "by-id-link"
+        _symlink(link, target)
+        assert canonical_port_name(str(link), platform="linux") == os.path.realpath(target)
+        assert canonical_port_name(str(link), platform="linux") == canonical_port_name(
+            str(target), platform="linux"
+        )
+
+    def test_posix_relative_path_that_exists_becomes_absolute(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "ttyS9").touch()
+        monkeypatch.chdir(tmp_path)
+        assert canonical_port_name("ttyS9", platform="linux") == os.path.realpath(
+            tmp_path / "ttyS9"
+        )
+
+    @pytest.mark.parametrize(
+        "name",
+        ["/dev/anyserial-absent", "mock://port", "socket://localhost:7000", ""],
+    )
+    def test_posix_names_that_do_not_exist_are_kept(self, name: str) -> None:
+        assert canonical_port_name(name, platform="linux") == name
+
+    def test_posix_dangling_symlink_is_kept(self, tmp_path: Path) -> None:
+        link = tmp_path / "unplugged"
+        _symlink(link, tmp_path / "ttyUSB9")
+        assert canonical_port_name(str(link), platform="darwin") == str(link)
+
+    def test_platform_is_read_at_call_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert canonical_port_name("\\\\?\\com8") == "COM8"
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert canonical_port_name("/dev/anyserial-absent") == "/dev/anyserial-absent"
+
 
 class TestPlatformSelector:
     def test_unimplemented_platform_raises_with_platform_name(
@@ -321,10 +441,12 @@ class TestPublicReexports:
         assert anyserial.PortInfo is PortInfo
         assert anyserial.list_serial_ports is list_serial_ports
         assert anyserial.find_serial_port is find_serial_port
+        assert anyserial.canonical_port_name is canonical_port_name
         for name in (
             "PortInfo",
             "list_serial_ports",
             "find_serial_port",
+            "canonical_port_name",
             "DiscoveryBackend",
         ):
             assert name in anyserial.__all__
