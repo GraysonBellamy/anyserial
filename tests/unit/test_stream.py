@@ -12,6 +12,7 @@ Parametrized against asyncio / asyncio+uvloop / trio by the
 from __future__ import annotations
 
 import gc
+import math
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -513,6 +514,14 @@ class TestBreakAndDrain:
         a, _ = pair
         with pytest.raises(ValueError, match="non-negative"):
             await a.send_break(-0.1)
+
+    async def test_send_break_nan_raises(self, pair: tuple[SerialPort, SerialPort]) -> None:
+        # Our message, not anyio.sleep()'s "delay must be ...": the guard
+        # rejects NaN before BREAK is ever asserted.
+        a, _ = pair
+        with pytest.raises(ValueError, match="duration must be non-negative"):
+            await a.send_break(math.nan)
+        assert a._backend.break_asserted is False  # type: ignore[union-attr]
 
     async def test_drain_returns_immediately_when_nothing_pending(
         self, pair: tuple[SerialPort, SerialPort]

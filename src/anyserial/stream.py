@@ -723,7 +723,7 @@ class _PosixSerialPort(SerialPort):
         (see :doc:`DESIGN` §12.4.1). Cancellable mid-sleep; the BREAK is
         guaranteed to be de-asserted via ``finally``.
         """
-        if duration < 0:
+        if not duration >= 0:  # also rejects NaN
             msg = f"duration must be non-negative (got {duration!r})"
             raise ValueError(msg)
         with self._send_guard:
@@ -938,7 +938,7 @@ class _AsyncBackendSerialPort(SerialPort):
 
     @override
     async def send_break(self, duration: float = 0.25) -> None:
-        if duration < 0:
+        if not duration >= 0:  # also rejects NaN
             msg = f"duration must be non-negative (got {duration!r})"
             raise ValueError(msg)
         with self._send_guard:

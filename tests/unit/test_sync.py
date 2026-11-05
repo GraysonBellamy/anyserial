@@ -245,6 +245,18 @@ class TestConfigurePortalGuard:
             a.close()
             b.close()
 
+    def test_failed_portal_start_allows_reconfigure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Restore the module-level config on teardown whatever happens here.
+        monkeypatch.setattr("anyserial.sync._provider_backend", "asyncio")
+        monkeypatch.setattr("anyserial.sync._provider_options", {})
+        configure_portal(backend="no-such-backend")
+        # The real error every time, not a leftover broken provider.
+        for _ in range(2):
+            with pytest.raises(LookupError, match="no-such-backend"):
+                SerialPort.open("/dev/never-opened")
+        configure_portal(backend="asyncio")
+        assert _get_provider().backend == "asyncio"
+
 
 @pytest.fixture(autouse=True)
 def _reset_portal_between_tests() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]

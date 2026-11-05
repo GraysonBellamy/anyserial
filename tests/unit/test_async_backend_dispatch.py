@@ -14,6 +14,7 @@ typed attributes, EOF translation).
 
 from __future__ import annotations
 
+import math
 import sys
 
 import anyio
@@ -436,6 +437,17 @@ class TestControlDelegation:
     ) -> None:
         with pytest.raises(ValueError, match="duration must be non-negative"):
             await toy_port.send_break(-1.0)
+        await toy_port.aclose()
+
+    async def test_send_break_nan_raises_before_backend(
+        self,
+        toy_port: _AsyncBackendSerialPort,
+    ) -> None:
+        with pytest.raises(ValueError, match="duration must be non-negative"):
+            await toy_port.send_break(math.nan)
+        backend = toy_port._backend
+        assert isinstance(backend, _ToyAsyncBackend)
+        assert backend.send_break_calls == []
         await toy_port.aclose()
 
     async def test_modem_and_control_lines(self, toy_port: _AsyncBackendSerialPort) -> None:

@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `anyserial.sync`: if the shared event-loop thread fails to start
+  (unknown backend, or `use_uvloop=True` without uvloop installed), the
+  failed configuration is discarded. Every later sync open used to fail
+  (with `AttributeError` on AnyIO before 4.16) and `configure_portal()`
+  refused to run, claiming the portal had already started.
+- `send_break(float("nan"))` raises `ValueError` before asserting BREAK.
+  The `duration < 0` check let NaN through to `anyio.sleep()`.
+
 ## [0.2.0]
 
 ### Added
@@ -225,6 +237,7 @@ Initial release.
   and per-platform pages (Linux tuning, macOS, BSD, Windows).
 - MIT license.
 
+[Unreleased]: https://github.com/GraysonBellamy/anyserial/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.2.0
 [0.1.2]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.1.2
 [0.1.1]: https://github.com/GraysonBellamy/anyserial/releases/tag/v0.1.1

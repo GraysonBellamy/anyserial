@@ -76,7 +76,13 @@ def configure_portal(
         backend: AnyIO backend name — ``"asyncio"`` or ``"trio"``.
         backend_options: Backend-specific options forwarded to
             :func:`anyio.run`. For uvloop pass
-            ``{"use_uvloop": True}``.
+            ``{"use_uvloop": True}``; this needs uvloop installed (the
+            ``anyserial[uvloop]`` extra), as AnyIO does not fall back to
+            the default event loop without it.
+
+    If the portal then fails to start (unknown backend, missing
+    dependency), the first sync open raises that error and the
+    configuration is discarded, so this function can be called again.
 
     Raises:
         RuntimeError: If a portal has already been spawned this process.
@@ -103,6 +109,19 @@ def _get_provider() -> anyio.from_thread.BlockingPortalProvider:
                 backend_options=_provider_options or None,
             )
         return _provider
+
+
+def _discard_provider(provider: anyio.from_thread.BlockingPortalProvider) -> None:
+    """Forget ``provider`` if it is still the cached one.
+
+    Called when entering ``provider`` failed. Entering only fails while
+    starting the portal thread, so no port holds the provider and the
+    next open (or :func:`configure_portal`) can start over.
+    """
+    global _provider  # noqa: PLW0603 — lazy module-level singleton
+    with _CONFIG_LOCK:
+        if _provider is provider:
+            _provider = None
 
 
 def _reset_portal_for_testing() -> None:  # pyright: ignore[reportUnusedFunction]
@@ -198,7 +217,11 @@ class SerialPort:
             raise ValueError(msg)
         cfg = config if config is not None else SerialConfig(**config_fields)  # type: ignore[arg-type]
         provider = _get_provider()
-        portal = provider.__enter__()
+        try:
+            portal = provider.__enter__()
+        except BaseException:
+            _discard_provider(provider)
+            raise
         try:
             async_port = _call_with_timeout(portal, _async_open_serial_port, timeout, path, cfg)
         except BaseException:
